@@ -1,0 +1,149 @@
+---
+title: "Bikeshare perdict"
+author: "Jiahang Li"
+date: "2024-04-27"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Set Up
+
+```{r library and data, include=FALSE}
+library(tidyverse)
+library(sf)
+library(lubridate)
+library(tigris)
+library(gganimate)
+library(riem)
+library(gridExtra)
+library(knitr)
+library(kableExtra)
+library(tidycensus)
+library(mapview)
+library(sfdep)
+library(spdep)
+library(caret)
+library (readr)
+
+options(tigris_class = "sf")
+source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/functions.r")
+
+palette5 <- c("#124E78","#F0F0C9","#F2BB05","#D74E09","#6E0E0A")
+palette4 <- c("#124E78","#F0F0C9","#F2BB05","#6E0E0A")
+palette2 <- c("#124E78","#6E0E0A")
+
+tidycensus::census_api_key("e79f3706b6d61249968c6ce88794f6f556e5bf3d", overwrite = TRUE)
+```
+
+```{r obtain census geom and bike data, warning=FALSE, message=FALSE, results='hide', cache=TRUE}
+
+bikesharenew <- read.csv(url("https://raw.githubusercontent.com/jiahangl98/MUSA508-A5/main/JC-202403-citibike-tripdata.csv"))
+
+
+jcCensus <- get_acs(geography = "tract", 
+          variables = c("B01003_001", "B19013_001", 
+                        "B02001_002", "B08013_001",
+                        "B08012_001", "B08301_001", 
+                        "B08301_010", "B01002_001"), 
+          year = 2021, 
+          state = "NJ", 
+          geometry = TRUE, 
+          county=c("Hudson"),
+          output = "wide") %>%
+  rename(Total_Pop =  B01003_001E,
+         Med_Inc = B19013_001E,
+         Med_Age = B01002_001E,
+         White_Pop = B02001_002E,
+         Travel_Time = B08013_001E,
+         Num_Commuters = B08012_001E,
+         Means_of_Transport = B08301_001E,
+         Total_Public_Trans = B08301_010E) %>%
+  select(Total_Pop, Med_Inc, White_Pop, Travel_Time,
+         Means_of_Transport, Total_Public_Trans,
+         Med_Age,
+         GEOID, geometry) %>%
+  mutate(Percent_White = White_Pop / Total_Pop,
+         Mean_Commute_Time = Travel_Time / Total_Public_Trans,
+         Percent_Taking_Public_Trans = Total_Public_Trans / Means_of_Transport)
+
+jcTracts <- njCensus %>%
+  as.data.frame() %>%
+  distinct(GEOID, .keep_all = TRUE) %>%
+  select(GEOID, geometry) %>% 
+  st_sf()
+```
+
+
+```{r add census tract}
+
+bike_census <- st_join(bikesharenew %>% 
+                         filter(is.na(start_lat) == FALSE &
+                                is.na(start_lng) == FALSE &
+                                is.na(end_lat) == FALSE &
+                                is.na(end_lng) == FALSE) %>%
+                         st_as_sf(., coords = c("start_lng", "start_lat"), crs = 4326),
+                       jcTracts %>%  st_transform(crs=4326),
+                       join=st_intersects, left = TRUE) %>%
+  rename(Origin.Tract = GEOID) %>%
+  mutate(start_lng = unlist(map(geometry, 1)),
+         start_lat = unlist(map(geometry, 2)))%>%
+  filter(!(ride_id %in% c("BEC9CC4D1007C753", "86087F431785EDE7", "A1AAB92631439883", "71938DA085242DCC", "4203C77668C47C75", "C92410CA2AEF3947", "6E02CBF36C90F244", "0259885253FD238E", "B39136B37AFB5FE9", "1EC9376D1559C51C", "CDDF16D3A37BE370"))) %>% 
+  as.data.frame()
+  
+```
+
+```{r distribution of stations}
+
+ggplot()+
+  geom_sf(data = jcTracts %>%
+          st_transform(crs=4326), fill="white")+
+  geom_point(data = bike_census, aes(x=start_lng, y = start_lat), 
+            color = "#6E0E0A", alpha = 1, size = 0.3) + 
+  ylim(min(bike_census$start_lat), max(bike_census$start_lat))+
+  xlim(min(bike_census$start_lng), max(bike_census$start_lng)) +
+  labs(title = "Location of Rides Starting Points in Jersey City") +
+  theme(axis.text.x=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks =element_blank(),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        plot.subtitle = element_text(size = 9,face = "italic"),
+        plot.title = element_text(size = 12, face = "bold"),
+        panel.background = element_blank(),
+        panel.border = element_rect(colour = "grey", fill=NA, linewidth=0.8)
+        )
+
+```
+
+```{r temporal feature engineering}
+
+bike_census <- bike_census %>%
+  mutate(interval60 = floor_date(ymd_hms(started_at), unit = "hour"),
+         interval15 = floor_date(ymd_hms(started_at), unit = "15 mins"),
+         week = week(interval60),
+         dotw = wday(interval60, label=TRUE)) %>% 
+  mutate(time_of_day = case_when(hour(interval60) < 7 | hour(interval60) > 18 ~ "Overnight",
+                                 hour(interval60) >= 7 & hour(interval60) < 10 ~ "AM Rush",
+                                 hour(interval60) >= 10 & hour(interval60) < 15 ~ "Mid-Day",
+                                 hour(interval60) >= 15 & hour(interval60) <= 18 ~ "PM Rush")) %>% 
+  mutate(hour = hour(started_at),
+                weekend = ifelse(dotw %in% c("Sun", "Sat"), "Weekend", "Weekday"))
+```
+
+```{r origin-desintation matrix, warning=FALSE}
+
+lines <- st_sfc(
+  lapply(1:nrow(bike_census), function(i) {
+    st_linestring(matrix(c(bike_census[i, "start_lng"], bike_census[i, "start_lat"],
+                            bike_census[i, "end_lng"], bike_census[i, "end_lat"]), ncol = 2, byrow = TRUE))
+  }))
+
+lines_sf <- st_sf(geometry = lines)
+lines_sf <- st_set_crs(lines_sf, 4326)
+
+Route <- lines_sf %>% head(200)
+mapview(Route, zcol = NULL, color = "#6E0E0A", linewidth = 0.001, alpha = 0.3) # only show 200
+```
