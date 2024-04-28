@@ -656,14 +656,14 @@ lag_result <- data.frame()
 
 for (d in 61:91) {
   for (h in 0:23) {
-    spacelag <- bike.panel %>% 
-      filter(day == d & hour == h) %>% 
-      st_as_sf(., coords = c("start_lng", "start_lat"), crs = 4326) %>%
-      coords.test_lag <-  st_coordinates(spacelag) 
-      if(!is.numeric(coords.test_lag)) {
-        print("Coordinates are not numeric.")
-        print(head(coords.test_lag))  # Print some of the coordinate data to inspect it
-        }
+    spacelag <- bike.panel %>%
+      st_as_sf(., coords = c("start_lng", "start_lat"), crs = 4326)
+
+    coords.test_lag <-  st_coordinates(spacelag) 
+    if(!all(apply(coords.test_lag, 2, is.numeric))) {
+      print("Some coordinates are not numeric")
+      print(coords.test_lag[!apply(coords.test_lag, 2, is.numeric)])
+    }
       neighborList.test_lag <- knn2nb(knearneigh(coords.test_lag, 5))
       spatialWeights.test_lag <- nb2listw(neighborList.test_lag, style="W")
       spacelag <- spacelag %>% mutate(lagTrip = lag.listw(spatialWeights.test_lag, Trip_Count))
@@ -679,20 +679,19 @@ lag_result <- data.frame()
 for (d in 61:91) {
   for (h in 0:23) {
     spacelag <- bike.panel %>%
-      filter(day == d & hour == h) %>%
       st_as_sf(., coords = c("start_lng", "start_lat"), crs = 4326)
 
-    if (!exists("spacelag")) {
-      print(paste("spacelag not created for day", d, "hour", h))
-      next 
-    }
-
     coords.test_lag <-  st_coordinates(spacelag) 
-    coords.test_lag <- is.numeric(coords.test_lag)
-    if(!all(sapply(coords.test_lag, is.numeric))) {
-      print("Not all coordinates are numeric:")
-      print(coords.test_lag[!sapply(coords.test_lag, is.numeric)])
-      }
+    if(!all(apply(coords.test_lag, 2, is.numeric))) {
+      print("Some coordinates are not numeric")
+      print(coords.test_lag[!apply(coords.test_lag, 2, is.numeric)])
+    }
+    set.seed(123) # for reproducibility
+    noise <- runif(n = nrow(coords.test_lag), min = -1e-10, max = 1e-10)
+    coords.test_lag[, 1] <- coords.test_lag[, 1] + noise # add noise to longitude
+    coords.test_lag[, 2] <- coords.test_lag[, 2] + noise # add noise to latitude
+
+    # Now rerun knearneigh
     neighborList.test_lag <- knn2nb(knearneigh(coords.test_lag, 5))
     spatialWeights.test_lag <- nb2listw(neighborList.test_lag, style="W")
     spacelag <- spacelag %>% mutate(lagTrip = lag.listw(spatialWeights.test_lag, Trip_Count))
@@ -700,10 +699,6 @@ for (d in 61:91) {
     lag_result <- rbind(lag_result, spacelag)
   }
 }
-```
-
-```{r}
-print(class(spacelag))
 ```
 
 ```{r calculate spatial lag, message=FALSE, warning=FALSE}
