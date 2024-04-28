@@ -124,7 +124,7 @@ bike_census <- bike_census %>%
   mutate(interval60 = floor_date(ymd_hms(started_at), unit = "hour"),
          interval15 = floor_date(ymd_hms(started_at), unit = "15 mins"),
          week = week(interval60),
-         dotw = wday(interval60, label=TRUE)) %>% 
+         dotw = wday(interval60, label=TRUE, locale = "en_US")) %>% 
   mutate(time_of_day = case_when(hour(interval60) < 7 | hour(interval60) > 18 ~ "Overnight",
                                  hour(interval60) >= 7 & hour(interval60) < 10 ~ "AM Rush",
                                  hour(interval60) >= 10 & hour(interval60) < 15 ~ "Mid-Day",
@@ -184,7 +184,7 @@ ggplot(bike_census %>%
          group_by(interval60, start_station_name) %>%
          tally())+
   geom_histogram(aes(n), binwidth = 5, fill="#7892B5")+
-  labs(title="Bike Share Trips Per Hour by Station in Jersey City, Aug 2023",
+  labs(title="Bike Share Trips Per Hour by Station in Jersey City, March 2024",
        x="Trip Counts", 
        y="Number of Stations") + 
     theme(plot.subtitle = element_text(size = 9,face = "italic"),
