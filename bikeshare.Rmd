@@ -345,7 +345,7 @@ moranTest <- moran.mc(moran_data$n,
                       spatialWeights, nsim = 999)
 
 ggplot(as.data.frame(moranTest$res[c(1:999)]), aes(moranTest$res[c(1:999)])) +
-  geom_histogram(binwidth = 0.01, fill = ,"#D98481") +
+  geom_histogram(binwidth = 0.01, fill = "#D98481") +
   geom_vline(aes(xintercept = moranTest$statistic), colour = "#7892B5" ,lwd=1) +
   scale_x_continuous(limits = c(-0.5, 0.5)) +
   labs(title = "Observed and Permuted Moran's I for Stations with Most Rides",
@@ -397,7 +397,7 @@ theme(plot.subtitle = element_text(size = 9,face = "italic"),
 ```{r animate map temporal viz, message=FALSE, warning=FALSE, cache=TRUE, fig.show='animate'}
 library(gifski)
 week13 <-
-  filter(bike_census , week == 13 & dotw == "周一")
+  filter(bike_census , week == 13 & dotw == "Mon")
 
 week13.panel <-
   expand.grid(
@@ -492,7 +492,7 @@ grid.arrange(
         axis.text.y=element_text(size=8), 
         axis.title=element_text(size=10), 
         panel.background = element_blank()),  
-  ggplot(weather.Panel, aes(interval60,Temperature)) + geom_line(color=,"#D98481") + 
+  ggplot(weather.Panel, aes(interval60,Temperature)) + geom_line(color="#D98481") + 
     labs(title="Temperature", x="Hour", y="Temperature") +theme(plot.subtitle = element_text(size = 9,face = "italic"),
         plot.title = element_text(size = 12, face = "bold"), 
         axis.text.x=element_text(size=8),
@@ -536,7 +536,7 @@ bike.panel <-
   mutate(week = week(interval60),
          dotw = wday(interval60, label = TRUE)) %>%
   filter(is.na(Origin.Tract) == FALSE) %>% 
-  left_join(., njCensus %>%
+  left_join(., jcCensus %>%
               as.data.frame() %>%
               select(-geometry), by = c("Origin.Tract" = "GEOID"))
 
@@ -652,32 +652,61 @@ as.data.frame(bike.panel) %>%
 We've seen before that spatial autocorrelation exists here in that the number of trips at a particular station during a particular time is correlated with the number of trips at nearby stations. This means that if we know the number of trips at a station, we may be able to estimate the number of trips at the station next to it. Do achieve that, we created a new dataframe called `lag_result` and wrote a nested loop to loop through each hour in August 2023. For each hour, we then calculate the nearest 5 neighbor of each station and the average of rides for that 5 stations. The results were joined back to our panel dataset. 
 
 ```{r calculate spatial lag, message=FALSE, warning=FALSE}
-
 lag_result <- data.frame()
 
 for (d in 61:91) {
   for (h in 0:23) {
-
-spacelag <- bike.panel %>% 
-  #filter(day == d & hour == h) %>% 
-  st_as_sf(., coords = c("start_lng", "start_lat"), crs = 4326) %>%
-
-
-coords.test_lag <-  st_coordinates(spacelag) 
-if(!is.numeric(coords.test_lag)) {
-  print("Coordinates are not numeric.")
-  print(head(coords.test_lag))  # Print some of the coordinate data to inspect it
-}
-neighborList.test_lag <- knn2nb(knearneigh(coords.test_lag, 5))
-spatialWeights.test_lag <- nb2listw(neighborList.test_lag, style="W")
-
-spacelag <- spacelag %>% mutate(lagTrip = lag.listw(spatialWeights.test_lag, Trip_Count))
-
-lag_result <- rbind(lag_result, spacelag)
+    spacelag <- bike.panel %>% 
+      filter(day == d & hour == h) %>% 
+      st_as_sf(., coords = c("start_lng", "start_lat"), crs = 4326) %>%
+      coords.test_lag <-  st_coordinates(spacelag) 
+      if(!is.numeric(coords.test_lag)) {
+        print("Coordinates are not numeric.")
+        print(head(coords.test_lag))  # Print some of the coordinate data to inspect it
+        }
+      neighborList.test_lag <- knn2nb(knearneigh(coords.test_lag, 5))
+      spatialWeights.test_lag <- nb2listw(neighborList.test_lag, style="W")
+      spacelag <- spacelag %>% mutate(lagTrip = lag.listw(spatialWeights.test_lag, Trip_Count))
+      lag_result <- rbind(lag_result, spacelag)
   }
-  
+ 
 }
+```
 
+```{r}
+lag_result <- data.frame()
+
+for (d in 61:91) {
+  for (h in 0:23) {
+    spacelag <- bike.panel %>%
+      filter(day == d & hour == h) %>%
+      st_as_sf(., coords = c("start_lng", "start_lat"), crs = 4326)
+
+    if (!exists("spacelag")) {
+      print(paste("spacelag not created for day", d, "hour", h))
+      next 
+    }
+
+    coords.test_lag <-  st_coordinates(spacelag) 
+    coords.test_lag <- is.numeric(coords.test_lag)
+    if(!all(sapply(coords.test_lag, is.numeric))) {
+      print("Not all coordinates are numeric:")
+      print(coords.test_lag[!sapply(coords.test_lag, is.numeric)])
+      }
+    neighborList.test_lag <- knn2nb(knearneigh(coords.test_lag, 5))
+    spatialWeights.test_lag <- nb2listw(neighborList.test_lag, style="W")
+    spacelag <- spacelag %>% mutate(lagTrip = lag.listw(spatialWeights.test_lag, Trip_Count))
+
+    lag_result <- rbind(lag_result, spacelag)
+  }
+}
+```
+
+```{r}
+print(class(spacelag))
+```
+
+```{r calculate spatial lag, message=FALSE, warning=FALSE}
 bike.panel <- lag_result %>% 
   mutate(start_lng = unlist(map(geometry, 1)),
          start_lat = unlist(map(geometry, 2))) %>% 
