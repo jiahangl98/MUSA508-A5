@@ -381,6 +381,8 @@ ggplot()+
         )
 ```
 
+The observed Moran's I value for the actual data is indicated by a vertical line in a different color (presumably the one noted in red in the chart's title), which falls outside of the bulk of the simulated distribution. The observed Moran's I is to the right of the distribution, it suggests a positive spatial autocorrelation, meaning that stations with a high number of rides are likely to be clustered near other stations with a high number of rides. 
+
 
 ```{r spatial auto cor, warning=FALSE}
 
@@ -415,6 +417,9 @@ theme(plot.subtitle = element_text(size = 9,face = "italic"),
         axis.title=element_text(size=10))
 ```
 
+
+The map illustrates a distinct pattern of clustering among bike share stations with higher demand. Specifically, it reveals two prominent clusters where a select few stations experience an especially high volume of rides. These central nodes of activity are encircled by stations with moderately fewer rides, indicating a gradient of demand within each cluster.
+
 ```{r spatial cor viz, fig.height=8, fig.width=11}
 
   ggplot() +
@@ -448,6 +453,8 @@ theme(plot.subtitle = element_text(size = 9,face = "italic"),
 ```
 ## Space-time Correlation
 
+
+The animated map presents a dynamic choropleth representation, merging both spatial and temporal aspects of bikeshare usage into a cohesive visualization. It updates every 15 minutes to reflect changes in bike ride patterns across the area of interest.
 
 ```{r animate map temporal viz, message=FALSE, warning=FALSE, cache=TRUE, fig.show='animate'}
 library(gifski)
@@ -507,7 +514,9 @@ anim_save("animation.gif", animation = bikeshare_animation, end_pause = 4, heigh
 
 ## Weather Analysis
 
-On top of space and time, weather can be another significant factor of in predicting bikeshare demand. Generally, we believe bikeshare demand will decrease if it's on a rainy, windy, or a very hot day in our case.  With that in mind, we downloaded the weather data using the `riem_measures` function for Newark airport between Aug 1, 2023 and Sept 1, 2023. Note that the Newark Airport station sufficiently provides temporal weather for all of Jersey City. The weather.Panel is generated to summarize temperature, precipitation, and wind speed for every hour. 
+
+Considering the influence of meteorological conditions on bikeshare demand, we postulate that inclement weather, such as rain, strong winds, or extreme heat, typically leads to a decline in usage. To validate this, we acquired hourly weather data from Newark Airport for the period spanning March 1, 2024, to April 1, 2024, using the riem_measures function, which is representative of weather patterns for the entirety of Jersey City. A summary panel, termed the weather.Panel, was created to encapsulate key weather variables — temperature, precipitation, and wind speed — on an hourly basis.
+
 
 ```{r download and wrangle weather data, warning=FALSE}
 
@@ -526,7 +535,7 @@ weather.Panel <-
 
 ```
 
-For the temperature, precipitation, and wind data we collected during this month. We may see that there are a couple of rainy days in August. Wind speed is pretty consistent throughout with a couple of really windy days. Temperature fluctuates on a daily basis with higher temperature during the day and cooler temperature at night. 
+The provided time series charts display hourly weather data for a location near Newark Airport, representative of Jersey City's conditions, from March 4th to April 1st, 2024.The precipitation chart reveals sporadic rainfall with periods of no rain interrupted by occasional spikes indicating rain events. The wind speed chart shows variability, with certain hours exhibiting calm conditions and others experiencing significant gusts. Lastly, the temperature chart demonstrates daily fluctuations consistent with the diurnal cycle and changing weather patterns over the course of the month.
 
 ```{r visualize weather data, fig.height=11, fig.width=8, warning=FALSE}
 
@@ -602,7 +611,7 @@ bike.panel <-
 
 ## Weather Correlation
 
-Now, we could perform more exploratory analysis on our panel data to prepare for our regression model. First, we would like to see how temperature will correlate with the number of bike rides in August. The figure below shows a significant, positive, strong, and linear relationship between temperature and mean trip count for all weeks in August. This means that as the temperature increase, bikeshare demand will increase as well. 
+The red trend lines across the panels indicate that as temperature rises, the mean trip count tends to increase as well, suggesting a positive correlation between warmer temperatures and the use of bikeshare services. This pattern is consistent across all the weeks presented, although the density of points and the slope of the trend lines suggest that the strength of this relationship might vary from week to week.
 
 ```{r visualize temp, warning=FALSE, message=FALSE}
 
@@ -628,7 +637,9 @@ bike.panel %>%
 
 ```
 
-Next, we would like to see how wind speed will correlate with the number of bike rides in August. We see that a linear and positive relationship between these two variables, but the strength of such relationship varies between different weeks. This generally means that we see more bikeshare demand during windy days. 
+The red trend lines superimposed on the scatter plots suggest an overall relationship between wind speed and bikeshare usage. However, unlike the previous chart with temperature, the relationship here does not seem as straightforward or consistent across the weeks.
+
+For some weeks, the trend line appears to show a slight positive correlation, implying that trip counts increase with wind speed up to a certain point. This could be non-intuitive as higher wind speeds might typically deter outdoor activities like biking. For other weeks, the trend line is almost horizontal, suggesting little to no correlation between wind speed and trip counts. This could indicate that wind speed has a less direct or more variable impact on bikeshare usage.
 
 ```{r visualize wind, warning=FALSE, message=FALSE}
 bike.panel %>%
@@ -662,7 +673,7 @@ bike.panel %>%
 
 ## Serial Correlation
 
-Should the number of trips exhibit serial (temporal) correlation, then the time lag features will lead to better predictions. The logic behind is that the number of trips at a particular hour will very much correlate with the number of trips immediately before or after that hour. If we know the number of trips at a particular hour, then it would be easier for us to estimate the number of rides around that time. To achieve that, we calculated 6 different forms of lag hours. 
+If there's a temporal correlation in the number of bikeshare trips, incorporating time lag features could enhance the accuracy of predictive models. This is based on the premise that the volume of trips during a given hour is likely to be related to the volume in the hours just preceding or following it. Understanding trip patterns from one hour can thus inform us about trip patterns in adjacent hours. To harness this relationship, we've computed six distinct time lag variables to aid in our estimations.
 
 ```{r calculate serial lag}
 
@@ -678,7 +689,7 @@ bike.panel <-
    mutate(day = yday(interval60),hour = hour(interval60))
 ```
 
-The relationship between these lag hours and number of trips are visualized. We see a strong, linear, and negative relationship between lag12hours and number of trips 12 hours before. This means for example, the number of rides we see at 5pm on a particular day is negatively correlated with the number of rides at 5am that day. In contrast, we see a strong, linear, and positive relationship between laghour and lag1day. This means that the number of rides at a particular hour is highly correlated with the number of rides in the immediate next hour and at the same time the following day. Other than that, the strength of the correlation decreases for lag2hour and lag3hour, meaning that the number of rides at 4pm on a particular day, is more correlated with the number of rides at 5pm, rather than at 6 or 7 pm. 
+Red trend lines indicate the overall direction and strength of the relationship across all instances. For lag intervals like 1 hour (lag1Hour), there's a strong positive correlation, as shown by the dense cluster of points and the upward-sloping trend line. This suggests that the number of trips is highly predictive of the trip count in the next hour. As the lag intervals increase, the correlation seems to disperse, especially noticeable in lags like 12 hours and 1 day, where the spread of data points is wider, and the trend line is less steep. 
 
 ```{r visualize serial correlations, message=FALSE, warning=FALSE}
 
