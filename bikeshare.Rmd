@@ -21,7 +21,12 @@ knitr::opts_chunk$set(message = FALSE, warning = FALSE, echo = FALSE,cache = TRU
 
 # Overview
 
-This project aims to forecast bike share ridership in Jersey City, employing a multifaceted analytical approach that considers spatial patterns and time lag effects. By integrating these dimensions into our models, we anticipate uncovering insights that will inform more accurate and dynamic ridership projections.
+Bike-sharing systems are a sustainable and flexible transportation solution that allows people to borrow bicycles from designated stations throughout a city. One of the important challenges facing bike-sharing systems is to ensure bikes are available when and where they are needed. This situation raises awareness of how to efficiently redistribute bicycles in a certain time period across different stations to meet diverse demands at different times and locations, which is also known as rebalancing.
+
+Re-balancing aims to prevent docks from being either completely full or empty, thus maintaining operational efficiency and user satisfaction. The bike-sharing system would perform more effectively when high-demand stations are filled with bikes to meet user needs, while low-demand stations maintain a suitable number of bikes to ensure availability. The process requires precise anticipation and prediction of bike share demand to relocate bikes. 
+
+This exercise aims to enhance rebalancing using predictive machine learning models and Ordinary Least Square (OLS) regression that can forecast short-term demand based on spatial patterns and time lag effects in Jersey City. Moreover, discounts or rewards can be offered to users to encourage them to return bikes to docks that are likely to be empty or to rent from docks that are near capacity. Since the model is time-space dependent, historical data, weather data, and lag-effect variables will be considered and blended into the model.
+
 
 ```{r library and data, include=FALSE}
 library(tidyverse)
