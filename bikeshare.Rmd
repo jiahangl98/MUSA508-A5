@@ -332,7 +332,7 @@ to_plot$ID <- seq_along(to_plot$start_station_id)
 to_plot %>% 
   arrange(-n) %>%
   head(50) %>% 
-  ggplot(aes(x = reorder(ID, -n), n, fill = time_of_day, color = weekend)) +
+  ggplot(aes(x = start_station_name, -n), n, fill = time_of_day, color = weekend)) +
   scale_fill_manual(values = palette4, name="Time of Day") + 
   guides(color="none") + 
   geom_bar(stat = "identity", position="stack") +
@@ -340,20 +340,20 @@ to_plot %>%
   labs(title="Top 50 Occurences of Rides By Time")+
   ylab("Number of Rides") +
   xlab("") + 
-  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
-  theme(plot.subtitle = element_text(size = 9,face = "italic"),
-        plot.title = element_text(size = 12, face = "bold"), 
-        axis.text.x = element_blank(),
-    axis.ticks.x = element_blank(), 
-        axis.text.y=element_text(size=8), 
-        axis.title=element_text(size=10), 
-        panel.background = element_blank(),
-        panel.border = element_rect(colour = "grey", fill=NA, size=0.8))
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+theme(plot.subtitle = element_text(size = 9, face = "italic"),
+      plot.title = element_text(size = 12, face = "bold"), 
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 8), # ensure station names are displayed
+      axis.ticks.x = element_line(size = 0.5),  # assuming you want to keep the x-axis ticks
+      axis.text.y = element_text(size = 8), 
+      axis.title = element_text(size = 10), 
+      panel.background = element_blank(),
+      panel.border = element_rect(colour = "grey", fill = NA, size = 0.8))
 ```
 
 ## Spatial Analysis
 
- 
+From this visual representation, we can deduce which stations are most frequented during different times of the day. During the weekday AM and PM Rush hours, certain stations have significantly higher usage, likely located in or near business districts or major transit hubs. Mid-Day and Overnight show reduced activity, as indicated by smaller or fewer circles. The weekend maps indicate a more even distribution of rides across the day, with no single time period showing dominant demand as seen during the weekday rush hours.
 
 ```{r bikeshare viz 6}
 
