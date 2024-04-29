@@ -90,6 +90,12 @@ palette2 <- c("#7892B5","#D98481")
 tidycensus::census_api_key("e79f3706b6d61249968c6ce88794f6f556e5bf3d", overwrite = TRUE)
 ```
 
+
+
+The dataset utilized in this analysis is sourced from NYC OpenData and contains comprehensive records of Citi Bike usage, updated monthly. While Jersey City is situated in New Jersey, Citi Bike’s operations are primarily centered in New York City, which manages and releases the dataset. The temporal scope of our study focuses on the period from March 1, 2024, to April 1, 2024, exclusively examining bikeshare data within Jersey City. This dataset principally comprises the locations and names of the stations where users initiate and conclude their journeys. Additionally, to enrich our spatial analysis, we procured the census tract geometries for all of Hudson County, including Jersey City, using the tidycensus package.
+
+
+
 ```{r obtain census geom and bike data, warning=FALSE, message=FALSE, results='hide', cache=TRUE}
 
 bikesharenew <- read.csv(url("https://raw.githubusercontent.com/jiahangl98/MUSA508-A5/main/JC-202403-citibike-tripdata.csv"))
@@ -147,6 +153,9 @@ bike_census <- st_join(bikesharenew %>%
   
 ```
 
+Our current bikeshare dataset, while including spatial attributes such as latitude and longitude, isn't inherently spatial. To rectify this, we plan to spatially enable the dataset by associating each ride's starting location with the corresponding census tract geometry. Our focus is on the origins of rides, as we aim to predict station capacity based on the demand for bikes. Essential to this process is the exclusion of records lacking precise latitude and longitude data. Additionally, we've identified and will need to discard entries with incorrect geocodes.
+
+
 ```{r distribution of stations}
 
 ggplot()+
@@ -184,6 +193,11 @@ bike_census <- bike_census %>%
   mutate(hour = hour(started_at),
                 weekend = ifelse(dotw %in% c("Sun", "Sat"), "Weekend", "Weekday"))
 ```
+
+
+
+we created line strings that connect between the start and end locations of each ride. For the simplicity of visualization, we only visualize 200 rides. We can see that most of the rides occur within Jersey City,
+
 
 ```{r origin-desintation matrix, warning=FALSE}
 
