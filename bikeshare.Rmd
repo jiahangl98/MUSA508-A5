@@ -2,14 +2,26 @@
 title: "Bikeshare perdict"
 author: "Jiahang Li"
 date: "2024-04-27"
-output: html_document
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    code_folding: hide
+    number_sections: yes
+    theme: cosmo 
+    highlight: tango    
+editor_options: 
+  markdown: 
+    wrap: 72
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(message = FALSE, warning = FALSE, echo = FALSE,cache = TRUE)
 ```
 
-# Set Up
+# Overview
+
+This project aims to forecast bike share ridership in Jersey City, employing a multifaceted analytical approach that considers spatial patterns and time lag effects. By integrating these dimensions into our models, we anticipate uncovering insights that will inform more accurate and dynamic ridership projections.
 
 ```{r library and data, include=FALSE}
 library(tidyverse)
@@ -692,11 +704,40 @@ bike.panel$start_lat_original <- bike.panel$start_lat
 
 ```
 
+```{r}
+bike.panel <- st_as_sf(bike.panel, coords = c("start_lng", "start_lat"), crs = 4326)
+
+jcTracts <- st_transform(jcTracts, st_crs(bike.panel))
+
+bike.panel <- jcTracts %>%
+  st_join(bike.panel)
+
+bike.panel <- filter(bike.panel, !is.na(dotw))
+
+
+bikenew <- bike.panel %>%
+  select(geometry,Trip_Count) 
+  
+# 假设df是包含经纬度和trip数的数据框
+coordinates <- SpatialPointsDataFrame(coords = bike.panel[, c("start_lng", "start_lat")], data = bike.panel, proj4string = CRS("+proj=longlat +datum=WGS84"))
+
+# 计算距离矩阵并定义邻居
+dist_matrix <- spDists(coordinates, longlat = TRUE)
+threshold = 1  # 1公里的阈值
+neighbors <- dnearneigh(coordinates@coords, 0, threshold, longlat = TRUE)
+
+# 创建空间权重
+listw <- nb2listw(neighbors, style = "W")
+
+# 计算spatial lag
+bike.panel$trip_lag <- lag.listw(listw, bike.panel$Trip_Count, zero.policy = TRUE)
+```
 
 
 # Regression Models
 
-
+Four models are produced from the initial 3-2 week training-test split , with increasing complexity, from a just time based, just spatial based (fixed-effect), a time-spatial model to a time spatial with lagged features model. As can be observed in the following chart, the greatest improvement to the model is made by adding the lagged variables, given that things that happen in time (as well as in space) are more related to closer events than to farther events. 
+ 
 ```{r}
 bike.panel$dotw <- factor(bike.panel$dotw)
 bike.panel$dotw <- droplevels(bike.panel$dotw)
@@ -708,7 +749,6 @@ bike.Train <- filter(bike.panel, week >= 11)
 bike.Test <- filter(bike.panel, week < 11)
 
 ```
-
 
 
 ```{r five_models }
@@ -727,7 +767,11 @@ reg4 <-
      data=bike.Train)
 ```
 
+
 ## Predict for test data
+
+A better notion of how much the fitness of the models improves is given by looking at ridership as a function of time for both the predicted and the actual ridership.
+
 
 
 ```{r nest_data , warning = FALSE, message = FALSE}
@@ -792,7 +836,7 @@ week_predictions %>%
 
 Then, we will continue examine spatial distribution of the MAE with model 4.
 
-From the following map, we can tell there's no significant cluster of the high error, while the model4 generally perform well in the southwestern part of Jersey City, with low error
+From the following map, we can tell there's no significant cluster of the high error, while the model4 generally perform well in the southwestern part of Jersey Cit with low error, generally indicating **a uniform predictive capability across various locations**.
 
 ```{r errors_by_station, warning = FALSE, message = FALSE }
 week_predictions %>% 
@@ -822,7 +866,7 @@ ggplot(.)+
 
 ## Space-Time Error Evaluation
 
-If we plot observed vs. predicted for different times of day during the week and weekend, some patterns begin to emerge. We are certainly underpredicting in general, but **what do we begin to see about some of the outcomes that our model cannot explain?**
+This series of plots presents a comparison between observed and predicted bike-share ridership. The analysis is broken down by different times of the day and by weekday versus weekend, allowing us to discern patterns of under or over-prediction. It seems that during the AM Rush and PM Rush on weekdays, and Mid-Day on weekends, the predictions are closer to the observed values, suggesting **a higher model accuracy during peak usage times**.
 
 ```{r obs_pred_all, warning=FALSE, message = FALSE, cache=TRUE}
 week_predictions %>% 
@@ -852,7 +896,6 @@ week_predictions %>%
   plotTheme
 ```
 
-## Spatial Distribution of Space-Time Error
 
 ```{r station_summary, warning=FALSE, message = FALSE }
 week_predictions %>% 
@@ -886,7 +929,7 @@ week_predictions %>%
   mapTheme
   
 ```
-
+The scatter plots examine the relationship between socio-economic factors — median income, percentage using public transport, and percentage of white residents — and the predictive errors. There is a visible trend that as median income and percentage of white residents increase, so does the MAE, suggesting that these socio-economic factors may influence ridership patterns in ways that the model does not fully capture. The percentage of residents using public transportation shows less clear of a trend, indicating the need for further investigation into how public transportation usage correlates with bike-share ridership.
 
 ```{r station_summary2, warning=FALSE, message = FALSE }
 week_predictions %>% 
