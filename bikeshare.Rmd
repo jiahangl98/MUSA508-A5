@@ -203,11 +203,11 @@ mapview(Route, zcol = NULL, color = "#7892B5", linewidth = 0.001, alpha = 0.3) #
 
 # Exploratory Analysis
 
-In this section, we delve into some further exploratory analysis of our data set. 
+In this section, we perform some further exploratory analysis of our data set. 
 
 ## Temporal Analysis
 
-Starting with temporal analysis, we first visualized the bikeshare trips per hour in Jersey City in August 2023. It is clear that there's some form of circularity in that there are both peak hours and non-peak hours during a single day. Also, we may see that five consecutive higher peaks are usually followed by two less higher peaks. These correspond to high bikeshare need during rush hours and low bikeshare needs overnight, in early mornings, and over the weekend
+Based on the chart, it appears that there is a distinct pattern in the usage of bike share trips in Jersey City throughout March 2024. The data suggests regular fluctuations that likely correspond to daily cycles of peak and off-peak usage hours. It suggests increased bike share usage during weekdays, consistent with rush hours, and a noticeable drop during the weekends. This indicates that the bike share system is heavily utilized for commuting purposes during the work week, with reduced usage on weekends, possibly when people are less likely to follow work-related routines. This temporal pattern is typical for urban bike share programs, reflecting the ebb and flow of a city's daily life and weekly cycle.
 
 ```{r bikeshare viz1}
 ggplot(bike_census %>%
@@ -227,7 +227,7 @@ theme(plot.subtitle = element_text(size = 9,face = "italic"),
   
 ```
 
-Then, we visualized the distribution of trips by stations at each hour in August. We may see that the distribution of rides is highly right skewed, with most stations having zero or a few number of trips each hour and a couple of stations having much more rides, up to 40 or even 50 rides at a particular hour on a particular day in August 2023. 
+When visualizing the distribution of bike share trips by station for each hour in March, there's a significant skew towards the lower end of the trip count spectrum. This means that a large number of the bike share stations have very few trips (close to zero), while a small number of stations have a high frequency of usage, with the maximum observed being 30 rides in an hour for a specific station on a given day.
 
 ```{r bikeshare viz3, warning=FALSE}
 
@@ -248,7 +248,8 @@ ggplot(bike_census %>%
 
 ```
 
-We continue to visualize the distribution of mean number of trips at each station during different times of the day. We recognize that during PM rush, the average number of trips has been the highest throughout, with a couple of stations' average trip exceed 10, implying a relatively high demand for a single station. This is followed by ride demand in mid day, when some stations can have more than 5 rides. It is also surprising to notice that the demand is pretty high overnight, with a few stations having more than 5 rides. 
+
+The histograms depict the mean number of bike share trips per station during different times of day in Jersey City. They reveal a right-skewed distribution, where most stations see few hourly trips, while a small number have higher usage. During the AM Rush, there's a noticeable number of stations with under 5 trips, reflecting morning commutes. Mid-Day shows a significant decrease in trips, indicating less bike share use. Overnight usage drops further, with most stations nearing zero trips, which is expected during late hours. The PM Rush sees an uptick in trips compared to Mid-Day and Overnight, but not as high as the AM Rush, suggesting a less intense evening commute. Overall, these patterns suggest that certain stations, likely in key locations, have much higher demand, particularly during rush hours, pointing to opportunities for optimizing bike station placement and bike availability.
 
 ```{r bikeshare viz2, warning=FALSE, message=FALSE}
 
@@ -274,7 +275,8 @@ theme(plot.subtitle = element_text(size = 9,face = "italic"),
 
 ```
 
-After that, we visualized the total number of trips in August separated by day of the week. The two main patterns here are that firstly, trip numbers vary by time of the day. Lowest trip counts occur in early morning while highest trip count occur in late afternoon. Secondly, Tuesday, Wednesday, and Thursday tend to observe higher number of trips. 
+The chart illustrates the variation in bike share usage throughout the week in Jersey City for March 2024, with distinct patterns emerging between weekdays and weekends. On weekdays, there are two pronounced peaks each day, likely corresponding to the morning and evening rush hours, suggesting a heavy use of bikes for work commutes. The morning peaks are higher than the evening ones, indicating a potential preference for biking to work or a more concentrated start to the workday. Over the weekend, the usage pattern shifts, showing a single, less sharp peak during the midday hours, reflecting a more leisurely use of the bike share system, possibly for recreational activities or errands. This trend points to a dual nature of the bike share system: it serves as a critical component of weekday commute infrastructure and as a recreational amenity during weekends.
+
 
 ```{r bikeshare viz4}
 
@@ -294,7 +296,8 @@ ggplot(bike_census %>% mutate(hour = hour(started_at)))+
 
 ```
 
-Same type of visualize but this time separated between weekend and weekdays. It is very obvious that we see more trips during weekdays and less trips during weekends. Also, during weekends, number of trips start to increase much later than during weekdays, suggesting the missing of morning rush hour will significantly impact people's use of bikeshare services. 
+The graph compares the total bike share trips in Jersey City during weekdays and weekends in March 2024. The weekday line (blue) shows a bi-modal distribution, with two significant peaks that suggest high trip counts during typical morning and evening rush hours, indicating a strong use for commuting. The weekend line (red) presents a more bell-shaped curve with a single, broad peak that peaks lower than the highest weekday peak. This likely indicates a more leisurely use of bikes, with trips spread out across the day rather than concentrated around rush hours. Overall, bike share usage is significantly higher on weekdays compared to weekends, underscoring its role in supporting the daily work commute. The dramatic difference between the shapes of the two lines emphasizes the change in travel patterns between the workweek and the weekend.
+
 
 ```{r bikeshare viz 5}
 
