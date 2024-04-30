@@ -347,7 +347,7 @@ to_plot$ID <- seq_along(to_plot$start_station_id)
 to_plot %>% 
   arrange(-n) %>%
   head(50) %>% 
-  ggplot(aes(x = start_station_name, -n), n, fill = time_of_day, color = weekend)) +
+  ggplot(aes(x = start_station_name, -n), n, fill = time_of_day, color = weekend) +
   scale_fill_manual(values = palette4, name="Time of Day") + 
   guides(color="none") + 
   geom_bar(stat = "identity", position="stack") +
