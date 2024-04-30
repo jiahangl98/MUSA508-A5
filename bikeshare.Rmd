@@ -465,6 +465,8 @@ The map illustrates a distinct pattern of clustering among bike share stations w
         )
 
 ```
+
+
 ## Space-time Correlation
 
 
@@ -729,7 +731,7 @@ as.data.frame(bike.panel) %>%
 
 # Spatial Correlation
 
-We've seen before that spatial autocorrelation exists here in that the number of trips at a particular station during a particular time is correlated with the number of trips at nearby stations. This means that if we know the number of trips at a station, we may be able to estimate the number of trips at the station next to it. Do achieve that, we created a new dataframe called `lag_result` and wrote a nested loop to loop through each hour in August 2023. For each hour, we then calculate the nearest 5 neighbor of each station and the average of rides for that 5 stations. The results were joined back to our panel dataset. 
+We've seen before that spatial autocorrelation exists here in that the number of trips at a particular station during a particular time is correlated with the number of trips at nearby stations. This means that if we know the number of trips at a station, we may be able to estimate the number of trips at the station next to it.  For each hour, we then calculate the nearest 5 neighbor of each station and the average of rides for that 5 stations. The results were joined back to our panel dataset. The observation indicates that the total number of trips is similar across adjacent census tracts. 
 
 
 ```{r}
@@ -900,6 +902,8 @@ ggplot(.)+
   labs(title="Mean Abs Error, Test Set, Model 4")+
   mapTheme
 ```
+
+
 There is also no significant difference between the MAE in the two weeks (week 9 and week 10).
 
 ```{r}
@@ -954,6 +958,9 @@ errorWeek %>%
         )
 
 ```
+
+
+
 ## Space-Time Error Evaluation
 
 This series of plots presents a comparison between observed and predicted bike-share ridership. The analysis is broken down by different times of the day and by weekday versus weekend, allowing us to discern patterns of under or over-prediction. It seems that during the AM Rush and PM Rush on weekdays, and Mid-Day on weekends, the predictions are closer to the observed values, suggesting **a higher model accuracy during peak usage times**.
