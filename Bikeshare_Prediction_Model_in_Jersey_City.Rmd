@@ -1,0 +1,1049 @@
+---
+title: "Bikeshare Prediction Model in Jersey City"
+author: "Jiahang Li, George Chen, Xiayuanshan Gao"
+date: "2024-04-27"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    code_folding: hide
+    number_sections: yes
+    theme: cosmo 
+    highlight: tango    
+editor_options: 
+  markdown: 
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE, echo = FALSE,cache = TRUE)
+```
+
+# Overview
+
+Bike-sharing systems are a sustainable and flexible transportation solution that allows people to borrow bicycles from designated stations throughout a city. One of the important challenges facing bike-sharing systems is to ensure bikes are available when and where they are needed. This situation raises awareness of how to efficiently redistribute bicycles in a certain time period across different stations to meet diverse demands at different times and locations, which is also known as rebalancing.
+
+Re-balancing aims to prevent docks from being either completely full or empty, thus maintaining operational efficiency and user satisfaction. The bike-sharing system would perform more effectively when high-demand stations are filled with bikes to meet user needs, while low-demand stations maintain a suitable number of bikes to ensure availability. The process requires precise anticipation and prediction of bike share demand to relocate bikes. 
+
+This exercise aims to enhance rebalancing using predictive machine learning models and Ordinary Least Square (OLS) regression that can forecast short-term demand based on spatial patterns and time lag effects in Jersey City. Moreover, discounts or rewards can be offered to users to encourage them to return bikes to docks that are likely to be empty or to rent from docks that are near capacity. Since the model is time-space dependent, historical data, weather data, and lag-effect variables will be considered and blended into the model.
+
+
+```{r library and data, include=FALSE}
+library(tidyverse)
+library(sf)
+library(lubridate)
+library(tigris)
+library(gganimate)
+library(riem)
+library(gridExtra)
+library(knitr)
+library(kableExtra)
+library(tidycensus)
+library(mapview)
+library(sfdep)
+library(spdep)
+library(caret)
+library (readr)
+library(viridis)
+
+options(tigris_class = "sf")
+source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/functions.r")
+
+plotTheme <- theme(
+  plot.title =element_text(size=12),
+  plot.subtitle = element_text(size=8),
+  plot.caption = element_text(size = 6),
+  axis.text.x = element_text(size = 10, angle = 45, hjust = 1),
+  axis.text.y = element_text(size = 10),
+  axis.title.y = element_text(size = 10),
+  # Set the entire chart region to blank
+  panel.background=element_blank(),
+  plot.background=element_blank(),
+  #panel.border=element_rect(colour="#F0F0F0"),
+  # Format the grid
+  panel.grid.major=element_line(colour="#D0D0D0",size=.2),
+  axis.ticks=element_blank())
+
+mapTheme <- theme(plot.title =element_text(size=12),
+                  plot.subtitle = element_text(size=8),
+                  plot.caption = element_text(size = 6),
+                  axis.line=element_blank(),
+                  axis.text.x=element_blank(),
+                  axis.text.y=element_blank(),
+                  axis.ticks=element_blank(),
+                  axis.title.x=element_blank(),
+                  axis.title.y=element_blank(),
+                  panel.background=element_blank(),
+                  panel.border=element_blank(),
+                  panel.grid.major=element_line(colour = 'transparent'),
+                  panel.grid.minor=element_blank(),
+                  legend.direction = "vertical", 
+                  legend.position = "right",
+                  plot.margin = margin(1, 1, 1, 1, 'cm'),
+                  legend.key.height = unit(1, "cm"), legend.key.width = unit(0.2, "cm"))
+
+palette5 <- c("#7892B5","#8CB9C0","#91B5A9","#EDCA7F","#D98481")
+palette4 <- c("#7892B5","#8CB9C0","#EDCA7F","#D98481")
+palette2 <- c("#7892B5","#D98481")
+
+tidycensus::census_api_key("e79f3706b6d61249968c6ce88794f6f556e5bf3d", overwrite = TRUE)
+```
+
+
+
+The dataset utilized in this analysis is sourced from NYC OpenData and contains comprehensive records of Citi Bike usage, updated monthly. While Jersey City is situated in New Jersey, Citi Bike’s operations are primarily centered in New York City, which manages and releases the dataset. The temporal scope of our study focuses on the period from March 1, 2024, to April 1, 2024, exclusively examining bikeshare data within Jersey City. This dataset principally comprises the locations and names of the stations where users initiate and conclude their journeys. Additionally, to enrich our spatial analysis, we procured the census tract geometries for all of Hudson County, including Jersey City, using the tidycensus package.
+
+
+
+```{r obtain census geom and bike data, warning=FALSE, message=FALSE, results='hide', cache=TRUE}
+
+bikesharenew <- read.csv(url("https://raw.githubusercontent.com/jiahangl98/MUSA508-A5/main/JC-202403-citibike-tripdata.csv"))
+
+
+jcCensus <- get_acs(geography = "tract", 
+          variables = c("B01003_001", "B19013_001", 
+                        "B02001_002", "B08013_001",
+                        "B08012_001", "B08301_001", 
+                        "B08301_010", "B01002_001"), 
+          year = 2021, 
+          state = "NJ", 
+          geometry = TRUE, 
+          county=c("Hudson"),
+          output = "wide") %>%
+  rename(Total_Pop =  B01003_001E,
+         Med_Inc = B19013_001E,
+         Med_Age = B01002_001E,
+         White_Pop = B02001_002E,
+         Travel_Time = B08013_001E,
+         Num_Commuters = B08012_001E,
+         Means_of_Transport = B08301_001E,
+         Total_Public_Trans = B08301_010E) %>%
+  select(Total_Pop, Med_Inc, White_Pop, Travel_Time,
+         Means_of_Transport, Total_Public_Trans,
+         Med_Age,
+         GEOID, geometry) %>%
+  mutate(Percent_White = White_Pop / Total_Pop,
+         Mean_Commute_Time = Travel_Time / Total_Public_Trans,
+         Percent_Taking_Public_Trans = Total_Public_Trans / Means_of_Transport)
+
+jcTracts <- jcCensus %>%
+  as.data.frame() %>%
+  distinct(GEOID, .keep_all = TRUE) %>%
+  select(GEOID, geometry) %>% 
+  st_sf()
+```
+
+
+```{r add census tract}
+
+bike_census <- st_join(bikesharenew %>% 
+                         filter(is.na(start_lat) == FALSE &
+                                is.na(start_lng) == FALSE &
+                                is.na(end_lat) == FALSE &
+                                is.na(end_lng) == FALSE) %>%
+                         st_as_sf(., coords = c("start_lng", "start_lat"), crs = 4326),
+                       jcTracts %>%  st_transform(crs=4326),
+                       join=st_intersects, left = TRUE) %>%
+  rename(Origin.Tract = GEOID) %>%
+  mutate(start_lng = unlist(map(geometry, 1)),
+         start_lat = unlist(map(geometry, 2)))%>%
+  filter(!(ride_id %in% c("BEC9CC4D1007C753", "86087F431785EDE7", "A1AAB92631439883", "71938DA085242DCC", "4203C77668C47C75", "C92410CA2AEF3947", "6E02CBF36C90F244", "0259885253FD238E", "B39136B37AFB5FE9", "1EC9376D1559C51C", "CDDF16D3A37BE370"))) %>% 
+  as.data.frame()
+  
+```
+
+Our current bikeshare dataset, while including spatial attributes such as latitude and longitude, isn't inherently spatial. To rectify this, we plan to spatially enable the dataset by associating each ride's starting location with the corresponding census tract geometry. Our focus is on the origins of rides, as we aim to predict station capacity based on the demand for bikes. Essential to this process is the exclusion of records lacking precise latitude and longitude data. Additionally, we've identified and will need to discard entries with incorrect geocodes.
+
+
+```{r distribution of stations}
+
+ggplot()+
+  geom_sf(data = jcTracts %>%
+          st_transform(crs=4326), fill="white")+
+  geom_point(data = bike_census, aes(x=start_lng, y = start_lat), 
+            color = "#7892B5", alpha = 1, size = 0.3) + 
+  ylim(min(bike_census$start_lat), max(bike_census$start_lat))+
+  xlim(min(bike_census$start_lng), max(bike_census$start_lng)) +
+  labs(title = "Location of Rides Starting Points in Jersey City") +
+  theme(axis.text.x=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks =element_blank(),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        plot.subtitle = element_text(size = 9,face = "italic"),
+        plot.title = element_text(size = 12, face = "bold"),
+        panel.background = element_blank(),
+        panel.border = element_rect(colour = "grey", fill=NA, linewidth=0.8)
+        )
+
+```
+
+```{r temporal feature engineering}
+
+bike_census <- bike_census %>%
+  mutate(interval60 = floor_date(ymd_hms(started_at), unit = "hour"),
+         interval15 = floor_date(ymd_hms(started_at), unit = "15 mins"),
+         week = week(interval60),
+         dotw = wday(interval60, label=TRUE, locale = "en_US")) %>% 
+  mutate(time_of_day = case_when(hour(interval60) < 7 | hour(interval60) > 18 ~ "Overnight",
+                                 hour(interval60) >= 7 & hour(interval60) < 10 ~ "AM Rush",
+                                 hour(interval60) >= 10 & hour(interval60) < 15 ~ "Mid-Day",
+                                 hour(interval60) >= 15 & hour(interval60) <= 18 ~ "PM Rush")) %>% 
+  mutate(hour = hour(started_at),
+                weekend = ifelse(dotw %in% c("Sun", "Sat"), "Weekend", "Weekday"))
+```
+
+
+
+we created line strings that connect between the start and end locations of each ride. For the simplicity of visualization, we only visualize 200 rides. We can see that most of the rides occur within Jersey City,
+
+
+```{r origin-desintation matrix, warning=FALSE}
+
+lines <- st_sfc(
+  lapply(1:nrow(bike_census), function(i) {
+    st_linestring(matrix(c(bike_census[i, "start_lng"], bike_census[i, "start_lat"],
+                            bike_census[i, "end_lng"], bike_census[i, "end_lat"]), ncol = 2, byrow = TRUE))
+  }))
+
+lines_sf <- st_sf(geometry = lines)
+lines_sf <- st_set_crs(lines_sf, 4326)
+
+Route <- lines_sf %>% head(200)
+mapview(Route, zcol = NULL, color = "#7892B5", linewidth = 0.001, alpha = 0.3) # only show 200
+```
+
+
+
+# Exploratory Analysis
+
+In this section, we perform some further exploratory analysis of our data set. 
+
+## Temporal Analysis
+
+Based on the chart, it appears that there is a distinct pattern in the usage of bike share trips in Jersey City throughout March 2024. The data suggests regular fluctuations that likely correspond to daily cycles of peak and off-peak usage hours. It suggests increased bike share usage during weekdays, consistent with rush hours, and a noticeable drop during the weekends. This indicates that the bike share system is heavily utilized for commuting purposes during the work week, with reduced usage on weekends, possibly when people are less likely to follow work-related routines. This temporal pattern is typical for urban bike share programs, reflecting the ebb and flow of a city's daily life and weekly cycle.
+
+```{r bikeshare viz1}
+ggplot(bike_census %>%
+         group_by(interval60) %>%
+         tally())+
+  geom_line(aes(x = interval60, y = n), color= "#7892B5")+
+  labs(title="Bike Share Trips Per Hour in Jersey City, March 2024",
+       x="Date", 
+       y="Number of trips") + 
+theme(plot.subtitle = element_text(size = 9,face = "italic"),
+        plot.title = element_text(size = 12, face = "bold"), 
+        axis.text.x=element_text(size=8),
+        axis.text.y=element_text(size=8), 
+        axis.title=element_text(size=10), 
+        panel.background = element_blank(),
+        panel.border = element_rect(colour = "grey", fill=NA, linewidth =0.8))
+  
+```
+
+When visualizing the distribution of bike share trips by station for each hour in March, there's a significant skew towards the lower end of the trip count spectrum. This means that a large number of the bike share stations have very few trips (close to zero), while a small number of stations have a high frequency of usage, with the maximum observed being 30 rides in an hour for a specific station on a given day.
+
+```{r bikeshare viz3, warning=FALSE}
+
+ggplot(bike_census %>%
+         group_by(interval60, start_station_name) %>%
+         tally())+
+  geom_histogram(aes(n), binwidth = 5, fill="#7892B5")+
+  labs(title="Bike Share Trips Per Hour by Station in Jersey City, March 2024",
+       x="Trip Counts", 
+       y="Number of Stations") + 
+    theme(plot.subtitle = element_text(size = 9,face = "italic"),
+        plot.title = element_text(size = 12, face = "bold"), 
+        axis.text.x=element_text(size=8),
+        axis.text.y=element_text(size=8), 
+        axis.title=element_text(size=10), 
+        panel.background = element_blank(),
+        panel.border = element_rect(colour = "grey", fill=NA, linewidth =0.8))
+
+```
+
+
+The histograms depict the mean number of bike share trips per station during different times of day in Jersey City. They reveal a right-skewed distribution, where most stations see few hourly trips, while a small number have higher usage. During the AM Rush, there's a noticeable number of stations with under 5 trips, reflecting morning commutes. Mid-Day shows a significant decrease in trips, indicating less bike share use. Overnight usage drops further, with most stations nearing zero trips, which is expected during late hours. The PM Rush sees an uptick in trips compared to Mid-Day and Overnight, but not as high as the AM Rush, suggesting a less intense evening commute. Overall, these patterns suggest that certain stations, likely in key locations, have much higher demand, particularly during rush hours, pointing to opportunities for optimizing bike station placement and bike availability.
+
+```{r bikeshare viz2, warning=FALSE, message=FALSE}
+
+bike_census %>%
+        group_by(interval60, start_station_name, time_of_day) %>%
+         tally()%>%
+  group_by(start_station_name, time_of_day)%>%
+  summarize(mean_trips = mean(n))%>%
+  ggplot()+
+  geom_histogram(aes(mean_trips, fill=time_of_day), binwidth = 1)+
+  scale_fill_manual(values = palette4, name="Time of Day") + 
+  labs(title="Mean Number of Hourly Trips Per Station",
+       x="Number of trips", 
+       y="Frequency")+
+  facet_wrap(~time_of_day) +
+theme(plot.subtitle = element_text(size = 9,face = "italic"),
+        plot.title = element_text(size = 12, face = "bold"), 
+        axis.text.x=element_text(size=8),
+        axis.text.y=element_text(size=8), 
+        axis.title=element_text(size=10), 
+        panel.background = element_blank(),
+        panel.border = element_rect(colour = "grey", fill=NA, size=0.8))
+
+```
+
+The chart illustrates the variation in bike share usage throughout the week in Jersey City for March 2024, with distinct patterns emerging between weekdays and weekends. On weekdays, there are two pronounced peaks each day, likely corresponding to the morning and evening rush hours, suggesting a heavy use of bikes for work commutes. The morning peaks are higher than the evening ones, indicating a potential preference for biking to work or a more concentrated start to the workday. Over the weekend, the usage pattern shifts, showing a single, less sharp peak during the midday hours, reflecting a more leisurely use of the bike share system, possibly for recreational activities or errands. This trend points to a dual nature of the bike share system: it serves as a critical component of weekday commute infrastructure and as a recreational amenity during weekends.
+
+
+```{r bikeshare viz4}
+
+ggplot(bike_census %>% mutate(hour = hour(started_at)))+
+     geom_freqpoly(aes(hour, color = dotw), binwidth = 3, lwd = 0.8)+
+  scale_color_manual(values = c("#003566","#7892B5","#8CB9C0","#91B5A9","#EDCA7F","#E9B9AA","#D98481"), name = "Day") + 
+  labs(title="Bike Share Trips in Jersey City by Day of the Week, March 2024",
+       x="Hour", 
+       y="Trip Counts") + 
+  theme(plot.subtitle = element_text(size = 9,face = "italic"),
+        plot.title = element_text(size = 12, face = "bold"), 
+        axis.text.x=element_text(size=8),
+        axis.text.y=element_text(size=8), 
+        axis.title=element_text(size=10), 
+        panel.background = element_blank(),
+        panel.border = element_rect(colour = "grey", fill=NA, size=0.8))
+
+```
+
+The graph compares the total bike share trips in Jersey City during weekdays and weekends in March 2024. The weekday line (blue) shows a bi-modal distribution, with two significant peaks that suggest high trip counts during typical morning and evening rush hours, indicating a strong use for commuting. The weekend line (red) presents a more bell-shaped curve with a single, broad peak that peaks lower than the highest weekday peak. This likely indicates a more leisurely use of bikes, with trips spread out across the day rather than concentrated around rush hours. Overall, bike share usage is significantly higher on weekdays compared to weekends, underscoring its role in supporting the daily work commute. The dramatic difference between the shapes of the two lines emphasizes the change in travel patterns between the workweek and the weekend.
+
+
+```{r bikeshare viz 5}
+
+ggplot(bike_census)+
+     geom_freqpoly(aes(hour, color = weekend), binwidth = 3, lwd = 1.2)+
+  scale_color_manual(values=palette2) + 
+  labs(color = "Time of Week") +
+  labs(title="Bike Share Trips in Jersey City - Weekend vs Weekday, March 2024",
+       x="Hour", 
+       y="Trip Counts") + 
+  theme(plot.subtitle = element_text(size = 9,face = "italic"),
+        plot.title = element_text(size = 12, face = "bold"), 
+        axis.text.x=element_text(size=8),
+        axis.text.y=element_text(size=8), 
+        axis.title=element_text(size=10), 
+        panel.background = element_blank(),
+        panel.border = element_rect(colour = "grey", fill=NA, size=0.8))
+
+```
+
+We analyzed our bikeshare dataset by aggregating the number of trips according to the station, time of day, and whether the day was part of a weekday or weekend. Our objective was to discern the bike demand across different periods and conditions. For clarity in our visualization, we concentrated on the most significant data points, selecting the top 50 instances where bikeshare use was highest. The resulting visualization paints a clear picture: PM rush hours witness a substantial spike in bikeshare activity, particularly at specific stations. A noteworthy observation is that weekend rides are less frequent among the top occurrences, only appearing three times within the top 50.
+
+A closer look at the data uncovers some standout numbers. For instance, the Grove St PATH station registers a remarkable total of 740 rides during the PM rush on weekdays and another significant count of 402 rides overnight during weekdays of March 2024. Similarly, the Hoboken Terminal - River St & Hudson Pl is a hub of activity with a total of 613 rides noted during the overnight hours on weekdays.
+
+```{r bikeshare viz 7, fig.width=10}
+to_plot <- bike_census%>% # only show 100 stations
+  group_by(start_station_id, start_lat, start_lng, time_of_day, start_station_name,weekend) %>%
+  tally() %>% 
+  arrange(-n) %>% 
+  head(50) 
+to_plot$ID <- seq_along(to_plot$start_station_id)
+to_plot <- to_plot %>%
+  mutate(combined = paste(start_station_id, as.character(weekend), time_of_day, sep = "_"))
+
+
+to_plot %>% 
+  arrange(-n) %>%
+  head(50) %>% 
+  ggplot(aes(x = reorder(combined, -n), n, fill = time_of_day,color = weekend)) +
+  scale_fill_manual(values = palette4, name="Time of Day") + 
+  guides(color="none") + 
+  geom_bar(stat = "identity", position="stack") +
+  scale_color_manual(values = c("transparent", "black")) +
+  labs(title="Top 50 Occurences of Rides By Time")+
+  ylab("Number of Rides") +
+  xlab("Station ID") + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 4.5)) + 
+  theme(plot.subtitle = element_text(size = 9,face = "italic"),
+        plot.title = element_text(size = 12, face = "bold"), 
+        axis.text.y=element_text(size=8), 
+        axis.title=element_text(size=10), 
+        panel.background = element_blank(),
+        panel.border = element_rect(colour = "grey", fill=NA, size=0.8))
+```
+
+## Spatial Analysis
+
+From this visual representation, we can deduce which stations are most frequented during different times of the day. During the weekday AM and PM Rush hours, certain stations have significantly higher usage, likely located in or near business districts or major transit hubs. Mid-Day and Overnight show reduced activity, as indicated by smaller or fewer circles. The weekend maps indicate a more even distribution of rides across the day, with no single time period showing dominant demand as seen during the weekday rush hours.
+
+```{r bikeshare viz 6}
+
+ggplot()+
+  geom_sf(data = jcTracts %>%
+          st_transform(crs=4326), fill = "white")+
+  geom_point(data = to_plot,
+             aes(x=start_lng, y = start_lat, size=n), color = alpha("#7892B5", 0.7)) + 
+  ylim(min(bike_census$start_lat), max(bike_census$start_lat))+
+  xlim(min(bike_census$start_lng), max(bike_census$start_lng)) +
+  scale_size(range = c(0.5, 8)) + 
+  labs(size = "Number of Rides") +
+  facet_grid(weekend ~ time_of_day) + 
+    labs(title="Locations of Stations with Greatest Bikeshare Demand by Time")+ 
+  theme(axis.text.x=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks =element_blank(),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        plot.subtitle = element_text(size = 9,face = "italic"),
+        plot.title = element_text(size = 12, face = "bold"),
+        panel.background = element_blank(),
+        panel.border = element_rect(colour = "grey", fill=NA, linewidth=0.8)
+        )
+```
+
+The observed Moran's I value for the actual data is indicated by a vertical line in a different color (presumably the one noted in red in the chart's title), which falls outside of the bulk of the simulated distribution. The observed Moran's I is to the right of the distribution, it suggests a positive spatial autocorrelation, meaning that stations with a high number of rides are likely to be clustered near other stations with a high number of rides. 
+
+
+```{r spatial auto cor, warning=FALSE}
+
+moran_data <- bike_census %>%
+  group_by(start_station_id, start_lat, start_lng, start_station_name) %>%
+  tally() %>% 
+  arrange(-n) %>% 
+  head(80) %>% 
+  st_as_sf(., coords = c("start_lng", "start_lat"), crs = 4326)
+
+
+coords <-  st_coordinates(moran_data) 
+neighborList <- knn2nb(knearneigh(coords, 5))
+spatialWeights <- nb2listw(neighborList, style="W")
+
+moranTest <- moran.mc(moran_data$n, 
+                      spatialWeights, nsim = 999)
+
+ggplot(as.data.frame(moranTest$res[c(1:999)]), aes(moranTest$res[c(1:999)])) +
+  geom_histogram(binwidth = 0.01, fill = "#D98481") +
+  geom_vline(aes(xintercept = moranTest$statistic), colour = "#7892B5" ,lwd=1) +
+  scale_x_continuous(limits = c(-0.5, 0.5)) +
+  labs(title = "Observed and Permuted Moran's I for Stations with Most Rides",
+       subtitle = "Observed Moran's I in Red",
+       x = "Moran's I",
+       y = "Count") +
+  theme_light() +   
+theme(plot.subtitle = element_text(size = 9,face = "italic"),
+        plot.title = element_text(size = 12, face = "bold"), 
+        axis.text.x=element_text(size=8),
+        axis.text.y=element_text(size=8), 
+        axis.title=element_text(size=10))
+```
+
+
+The map illustrates a distinct pattern of clustering among bike share stations with higher demand. Specifically, it reveals two prominent clusters where a select few stations experience an especially high volume of rides. These central nodes of activity are encircled by stations with moderately fewer rides, indicating a gradient of demand within each cluster.
+
+```{r spatial cor viz, fig.height=8, fig.width=11}
+
+  ggplot() +
+  geom_sf(data = jcTracts, fill = "white") +
+  geom_sf(data = moran_data,
+          aes(size = n, color = n)) + 
+  ylim(min(bike_census$start_lat), max(bike_census$start_lat))+
+  xlim(min(bike_census$start_lng), max(bike_census$start_lng)) + 
+  scale_size(
+    range = c(1, 6),
+    guide = guide_legend(
+      direction = "horizontal",
+      nrow = 1,
+      label.position = "bottom")) +
+  scale_color_gradientn(colours = hcl.colors(5, "RdBu",rev = TRUE, alpha = 0.9), 
+                        guide = guide_legend(direction = "horizontal", nrow = 1)) +
+  labs(title = "Stations with Most Rides",
+       subtitle =  "Dot size proportional to rides") + 
+  theme(legend.position = "bottom") + 
+  theme(axis.text.x=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks =element_blank(),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        plot.subtitle = element_text(size = 9,face = "italic"),
+        plot.title = element_text(size = 12, face = "bold"),
+        panel.background = element_blank(),
+        panel.border = element_rect(colour = "grey", fill=NA, linewidth=0.8)
+        )
+
+```
+## Space-time Correlation
+
+
+The animated map presents a dynamic choropleth representation, merging both spatial and temporal aspects of bikeshare usage into a cohesive visualization. It updates every 15 minutes to reflect changes in bike ride patterns across the area of interest.
+
+```{r animate map temporal viz, message=FALSE, warning=FALSE, cache=TRUE, fig.show='animate'}
+library(gifski)
+week13 <-
+  filter(bike_census , week == 13 & dotw == "Mon")
+
+week13.panel <-
+  expand.grid(
+    interval15 = unique(week13$interval15),
+    Origin.Tract = unique(bike_census$Origin.Tract))
+
+bike.animation.data <-
+  mutate(week13, Trip_Counter = 1) %>%
+    right_join(week13.panel) %>% 
+    group_by(interval15, Origin.Tract) %>%
+    summarize(Trip_Count = sum(Trip_Counter, na.rm=T)) %>% 
+    ungroup() %>% 
+    left_join(jcTracts, by=c("Origin.Tract" = "GEOID")) %>%
+    st_sf() %>%
+    mutate(Trips = case_when(Trip_Count == 0 ~ "0 trips",
+                             Trip_Count > 0 & Trip_Count <= 3 ~ "1-3 trips",
+                             Trip_Count > 3 & Trip_Count <= 6 ~ "4-6 trips",
+                             Trip_Count > 6 & Trip_Count <= 10 ~ "7-10 trips",
+                             Trip_Count > 10 ~ "11+ trips")) %>%
+    mutate(Trips  = fct_relevel(Trips, "0 trips","1-3 trips","4-6 trips",
+                                       "7-10 trips","10+ trips"))
+
+bikeshare_animation <-
+  ggplot() +
+    geom_sf(data = bike.animation.data, aes(fill = Trips)) +
+    scale_fill_manual(values = palette5) +
+    labs(title = "Bikeshare For One Day in March 2024",
+         subtitle = "15 minute intervals: {current_frame}") +
+    transition_manual(interval15)  + 
+  theme(axis.text.x=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks =element_blank(),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        plot.subtitle = element_text(size = 9,face = "italic"),
+        plot.title = element_text(size = 12, face = "bold"),
+        panel.background = element_blank(),
+        panel.border = element_rect(colour = "grey", fill=NA, linewidth=0.8)
+        )
+  
+
+
+anim_save("animation.gif", animation = bikeshare_animation, end_pause = 4, height = 1000, width = 700, fps = 6, renderer = gifski_renderer())
+
+
+
+
+```
+
+
+
+
+## Weather Analysis
+
+
+Considering the influence of meteorological conditions on bikeshare demand, we postulate that inclement weather, such as rain, strong winds, or extreme heat, typically leads to a decline in usage. To validate this, we acquired hourly weather data from Newark Airport for the period spanning March 1, 2024, to April 1, 2024, using the riem_measures function, which is representative of weather patterns for the entirety of Jersey City. A summary panel, termed the weather.Panel, was created to encapsulate key weather variables — temperature, precipitation, and wind speed — on an hourly basis.
+
+
+```{r download and wrangle weather data, warning=FALSE}
+
+weather.Panel <- 
+  riem_measures(station = "EWR", date_start = "2024-03-01", date_end = "2024-04-01") %>%
+  dplyr::select(valid, tmpf, p01i, sknt)%>%
+  replace(is.na(.), 0) %>%
+    mutate(interval60 = ymd_h(substr(valid,1,13))) %>%
+    mutate(week = week(interval60),
+           dotw = wday(interval60, label=TRUE)) %>%
+    group_by(interval60) %>%
+    summarize(Temperature = max(tmpf),
+              Precipitation = sum(p01i),
+              Wind_Speed = max(sknt)) %>%
+    mutate(Temperature = ifelse(Temperature == 0, 42, Temperature))
+
+```
+
+The provided time series charts display hourly weather data for a location near Newark Airport, representative of Jersey City's conditions, from March 4th to April 1st, 2024.The precipitation chart reveals sporadic rainfall with periods of no rain interrupted by occasional spikes indicating rain events. The wind speed chart shows variability, with certain hours exhibiting calm conditions and others experiencing significant gusts. Lastly, the temperature chart demonstrates daily fluctuations consistent with the diurnal cycle and changing weather patterns over the course of the month.
+
+```{r visualize weather data, fig.height=11, fig.width=8, warning=FALSE}
+
+grid.arrange(
+  ggplot(weather.Panel, aes(interval60,Precipitation)) + geom_line(color="#7892B5") + 
+    labs(title="Percipitation", x="Hour", y="Perecipitation") + 
+    theme(plot.subtitle = element_text(size = 9,face = "italic"),
+        plot.title = element_text(size = 12, face = "bold"), 
+        axis.text.x=element_text(size=8),
+        axis.text.y=element_text(size=8), 
+        axis.title=element_text(size=10), 
+        panel.background = element_blank()), 
+  ggplot(weather.Panel, aes(interval60,Wind_Speed)) + geom_line(color="#EDCA7F") + 
+    labs(title="Wind Speed", x="Hour", y="Wind Speed") +
+    theme(plot.subtitle = element_text(size = 9,face = "italic"),
+        plot.title = element_text(size = 12, face = "bold"), 
+        axis.text.x=element_text(size=8),
+        axis.text.y=element_text(size=8), 
+        axis.title=element_text(size=10), 
+        panel.background = element_blank()),  
+  ggplot(weather.Panel, aes(interval60,Temperature)) + geom_line(color="#D98481") + 
+    labs(title="Temperature", x="Hour", y="Temperature") +theme(plot.subtitle = element_text(size = 9,face = "italic"),
+        plot.title = element_text(size = 12, face = "bold"), 
+        axis.text.x=element_text(size=8),
+        axis.text.y=element_text(size=8), 
+        axis.title=element_text(size=10), 
+        panel.background = element_blank()), 
+  top="Weather Data ")
+
+```
+
+
+# Space-Time Panel
+
+In the following steps, we created a study panel where each instance in the panel is a unique combination of space and time. In other words, each row will represent the ride at a particular station during a particular hour. 
+
+```{r create study panel, warning=FALSE, message=FALSE}
+
+study.panel <- 
+  expand.grid(interval60=unique(bike_census$interval60), 
+              start_station_id = unique(bike_census$start_station_id)) %>%
+  left_join(., bike_census %>%
+              select(start_station_id, start_station_name, Origin.Tract, start_lng, start_lat)%>%
+              distinct() %>%
+              group_by(start_station_id) %>%
+              slice(1))
+```
+
+
+
+```{r add info to study panel, warning=FALSE, message=FALSE}
+
+bike.panel <- 
+  bike_census %>%
+  mutate(Trip_Counter = 1) %>%
+  right_join(study.panel) %>% 
+  group_by(interval60, start_station_id, start_station_name, Origin.Tract, start_lng, start_lat) %>%
+  summarize(Trip_Count = sum(Trip_Counter, na.rm=T)) %>%
+  left_join(weather.Panel) %>%
+  ungroup() %>%
+  filter(is.na(start_station_id) == FALSE) %>%
+  mutate(week = week(interval60),
+         dotw = wday(interval60, label = TRUE)) %>%
+  filter(is.na(Origin.Tract) == FALSE) %>% 
+  left_join(., jcCensus %>%
+              as.data.frame() %>%
+              select(-geometry), by = c("Origin.Tract" = "GEOID"))
+
+```
+
+
+
+
+## Weather Correlation
+
+The red trend lines across the panels indicate that as temperature rises, the mean trip count tends to increase as well, suggesting a positive correlation between warmer temperatures and the use of bikeshare services. This pattern is consistent across all the weeks presented, although the density of points and the slope of the trend lines suggest that the strength of this relationship might vary from week to week.
+
+```{r visualize temp, warning=FALSE, message=FALSE}
+
+bike.panel %>%
+  group_by(interval60) %>% 
+  summarize(Trip_Count = mean(Trip_Count),
+            Temperature = first(Temperature)) %>%
+  mutate(week = week(interval60)) %>%
+  ggplot(aes(Temperature, Trip_Count)) + 
+    geom_point(color = "#7892B5") + geom_smooth(method = "lm", se= FALSE, color="#D98481") +
+    facet_wrap(~week, ncol=8) + 
+    labs(title="Trip Count As a Fuction of Temperature by Week",
+         x="Temperature", y="Mean Trip Count") + 
+  theme(plot.subtitle = element_text(size = 9,face = "italic"),
+        plot.title = element_text(size = 12, face = "bold"), 
+        axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(), 
+        axis.text.y=element_text(size=8), 
+        axis.title=element_text(size=10), 
+        panel.background = element_blank(),
+        panel.border = element_rect(colour = "grey", fill=NA, size=0.8))
+  
+
+```
+
+The red trend lines superimposed on the scatter plots suggest an overall relationship between wind speed and bikeshare usage. However, unlike the previous chart with temperature, the relationship here does not seem as straightforward or consistent across the weeks.
+
+For some weeks, the trend line appears to show a slight positive correlation, implying that trip counts increase with wind speed up to a certain point. This could be non-intuitive as higher wind speeds might typically deter outdoor activities like biking. For other weeks, the trend line is almost horizontal, suggesting little to no correlation between wind speed and trip counts. This could indicate that wind speed has a less direct or more variable impact on bikeshare usage.
+
+```{r visualize wind, warning=FALSE, message=FALSE}
+bike.panel %>%
+  group_by(interval60) %>% 
+  summarize(Trip_Count = mean(Trip_Count),
+            Wind = first(Wind_Speed)) %>%
+  mutate(week = week(interval60)) %>%
+  ggplot(aes(Wind, Trip_Count)) + 
+    geom_point(color = "#7892B5") + geom_smooth(method = "lm", se= FALSE, color="#D98481") +
+    facet_wrap(~week, ncol=8) + 
+    labs(title="Trip Count As a Fuction of Wind by Week",
+         x="Wind Speed", y="Mean Trip Count") + 
+  theme(plot.subtitle = element_text(size = 9,face = "italic"),
+        plot.title = element_text(size = 12, face = "bold"), 
+        axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(), 
+        axis.text.y=element_text(size=8), 
+        axis.title=element_text(size=10), 
+        panel.background = element_blank(),
+        panel.border = element_rect(colour = "grey", fill=NA, size=0.8)) + 
+    theme(plot.subtitle = element_text(size = 9,face = "italic"),
+        plot.title = element_text(size = 12, face = "bold"), 
+        axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(), 
+        axis.text.y=element_text(size=8), 
+        axis.title=element_text(size=10), 
+        panel.background = element_blank(),
+        panel.border = element_rect(colour = "grey", fill=NA, size=0.8))
+```
+
+
+## Serial Correlation
+
+If there's a temporal correlation in the number of bikeshare trips, incorporating time lag features could enhance the accuracy of predictive models. This is based on the premise that the volume of trips during a given hour is likely to be related to the volume in the hours just preceding or following it. Understanding trip patterns from one hour can thus inform us about trip patterns in adjacent hours. To harness this relationship, we've computed six distinct time lag variables to aid in our estimations.
+
+```{r calculate serial lag}
+
+bike.panel <- 
+  bike.panel %>% 
+  arrange(start_station_id, interval60) %>% 
+  mutate(lagHour = dplyr::lag(Trip_Count,1),
+         lag2Hours = dplyr::lag(Trip_Count,2),
+         lag3Hours = dplyr::lag(Trip_Count,3),
+         lag4Hours = dplyr::lag(Trip_Count,4),
+         lag12Hours = dplyr::lag(Trip_Count,12),
+         lag1day = dplyr::lag(Trip_Count,24)) %>%
+   mutate(day = yday(interval60),hour = hour(interval60))
+```
+
+Red trend lines indicate the overall direction and strength of the relationship across all instances. For lag intervals like 1 hour (lag1Hour), there's a strong positive correlation, as shown by the dense cluster of points and the upward-sloping trend line. This suggests that the number of trips is highly predictive of the trip count in the next hour. As the lag intervals increase, the correlation seems to disperse, especially noticeable in lags like 12 hours and 1 day, where the spread of data points is wider, and the trend line is less steep. 
+
+```{r visualize serial correlations, message=FALSE, warning=FALSE}
+
+as.data.frame(bike.panel) %>%
+    group_by(interval60) %>% 
+    summarise_at(vars(starts_with("lag"), "Trip_Count"), mean, na.rm = TRUE) %>%
+    gather(Variable, Value, -interval60, -Trip_Count) %>%
+  ggplot(aes(x = Value , y = Trip_Count)) +
+    geom_point(size = 1, color = "#7892B5") + geom_smooth(method = "lm", se= FALSE, color="#D98481") +
+  facet_wrap(~Variable, ncol = 6)+
+  labs(x = "Variable", y = "Correlation", title = "Correlation Between Serial Lag Trips and Trip Count") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  theme(plot.subtitle = element_text(size = 9,face = "italic"),
+        plot.title = element_text(size = 12, face = "bold"), 
+        axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(), 
+        axis.text.y=element_text(size=8), 
+        axis.title=element_text(size=10), 
+        panel.background = element_blank(),
+        panel.border = element_rect(colour = "grey", fill=NA, size=0.8))
+
+```
+
+# Spatial Correlation
+
+We've seen before that spatial autocorrelation exists here in that the number of trips at a particular station during a particular time is correlated with the number of trips at nearby stations. This means that if we know the number of trips at a station, we may be able to estimate the number of trips at the station next to it. Do achieve that, we created a new dataframe called `lag_result` and wrote a nested loop to loop through each hour in August 2023. For each hour, we then calculate the nearest 5 neighbor of each station and the average of rides for that 5 stations. The results were joined back to our panel dataset. 
+
+
+```{r}
+bike.panel.sf <- st_as_sf(bike.panel, coords = c("start_lng", "start_lat"), crs = 4326)
+
+jcTracts <- st_transform(jcTracts, st_crs(bike.panel.sf))
+
+bike.panel.sf <- jcTracts %>%
+  st_join(bike.panel.sf)
+
+bike.panel.sf <- filter(bike.panel.sf, !is.na(dotw))
+```
+
+
+```{r}
+library(classInt)
+
+trip_summary <- bike.panel.sf %>%
+  group_by(week, Origin.Tract) %>%
+  summarize(Sum_Trip_Count = sum(Trip_Count)) %>%
+  ungroup()
+
+breaks_jenks <- classIntervals(trip_summary$Sum_Trip_Count, n = 5, style = "jenks")
+
+labels <- paste0(formatC(breaks_jenks$brks[-length(breaks_jenks$brks)], format = "f", digits = 0, big.mark = ","), 
+                 " - ", 
+                 formatC(breaks_jenks$brks[-1], format = "f", digits = 0, big.mark = ","))
+
+
+ggplot() +
+  geom_sf(data = trip_summary, aes(fill = cut(Sum_Trip_Count, breaks = breaks_jenks$brks, include.lowest = TRUE)), color = "lightgrey") +
+    facet_wrap(~week, ncol = 8) +
+    scale_fill_manual(values = palette5,
+                      labels = labels,
+                      name = "Trip Count") +
+    labs(title="Sum of rideshare trips by tract and week") +
+    theme_void()+ theme(legend.position = "bottom") 
+```
+
+
+
+# Regression Models
+
+Four models are produced from the initial 3-2 week training-test split , with increasing complexity, from a just time based, just spatial based (fixed-effect), a time-spatial model to a time spatial with lagged features model. As can be observed in the following chart, the greatest improvement to the model is made by adding the lagged variables, given that things that happen in time (as well as in space) are more related to closer events than to farther events. 
+ 
+```{r}
+bike.panel$dotw <- factor(bike.panel$dotw)
+bike.panel$dotw <- droplevels(bike.panel$dotw)
+
+```
+
+```{r train_test }
+bike.Train <- filter(bike.panel, week >= 11)
+bike.Test <- filter(bike.panel, week < 11)
+
+```
+
+
+```{r five_models }
+reg1 <- lm(Trip_Count ~ hour(interval60) + dotw + Temperature, data=bike.Train)
+
+reg2 <- 
+  lm(Trip_Count ~  start_station_name + dotw + Temperature,  data=bike.Train)
+
+reg3 <- 
+  lm(Trip_Count ~  start_station_name + hour(interval60) + dotw + Temperature + Precipitation, 
+     data=bike.Train)
+
+reg4 <- 
+  lm(Trip_Count ~  start_station_name +  hour(interval60) + dotw + Wind_Speed + Temperature + Precipitation +
+                   lagHour + lag2Hours +lag3Hours + lag12Hours + lag1day, 
+     data=bike.Train)
+```
+
+
+## Predict for test data
+
+A better notion of how much the fitness of the models improves is given by looking at ridership as a function of time for both the predicted and the actual ridership.
+
+
+
+```{r nest_data , warning = FALSE, message = FALSE}
+bike.Test.weekNest <- 
+  bike.Test %>%
+  nest(-week) 
+```
+
+
+```{r predict_function }
+model_pred <- function(dat, fit){
+   pred <- predict(fit, newdata = dat)}
+```
+
+
+```{r do_predicitons }
+week_predictions <- 
+  bike.Test.weekNest %>% 
+    mutate(ATime_FE = map(.x = data, fit = reg1, .f = model_pred),
+           BSpace_FE = map(.x = data, fit = reg2, .f = model_pred),
+           CTime_Space_FE = map(.x = data, fit = reg3, .f = model_pred),
+           DTime_Space_FE_timeLags = map(.x = data, fit = reg4, .f = model_pred)) %>% 
+    gather(Regression, Prediction, -data, -week) %>%
+    mutate(Observed = map(data, pull, Trip_Count),
+           Absolute_Error = map2(Observed, Prediction,  ~ abs(.x - .y)),
+           MAE = map_dbl(Absolute_Error, mean, na.rm = TRUE),
+           sd_AE = map_dbl(Absolute_Error, sd, na.rm = TRUE))
+
+week_predictions
+```
+
+## Examine Error Metrics for Accuracy
+
+From the following two plots, we can find regression model 4 considering hour lags has the best goodness of fit. Model 4 is also not perfectly predicting may because of university spring break in March, while the time of spring break in unsure by institutions so unfortunately we didn't involve holiday lag and holidays in the model. The relatively low ridership in general may also be another reason for the under prediction.
+
+```{r plot_errors_by_model }
+week_predictions %>%
+  dplyr::select(week, Regression, MAE) %>%
+  gather(Variable, MAE, -Regression, -week) %>%
+  ggplot(aes(week, MAE)) + 
+    geom_bar(aes(fill = Regression), position = "dodge", stat="identity") +
+    scale_fill_manual(values = palette5) +
+    labs(title = "Mean Absolute Errors by model specification and week") +
+  plotTheme
+```
+
+```{r error_vs_actual_timeseries , warning = FALSE, message = FALSE}
+week_predictions %>% 
+    mutate(interval60 = map(data, pull, interval60),
+           start_station_id = map(data, pull, start_station_id)) %>%
+    dplyr::select(interval60, start_station_id, Observed, Prediction, Regression) %>%
+    unnest() %>%
+    gather(Variable, Value, -Regression, -interval60, -start_station_id) %>%
+    group_by(Regression, Variable, interval60) %>%
+    summarize(Value = sum(Value)) %>%
+    ggplot(aes(interval60, Value, colour=Variable)) + 
+      geom_line(size = 1.1) + 
+      facet_wrap(~Regression, ncol=1) +
+      labs(title = "Predicted/Observed bike share time series", subtitle = "Jersey City; A test set of March",  x = "Hour", y= "Station Trips") +
+      plotTheme
+```
+
+Then, we will continue examine spatial distribution of the MAE with model 4.
+
+From the following map, we can tell there's no significant cluster of the high error, while the model4 generally perform well in the southwestern part of Jersey Cit with low error, generally indicating **a uniform predictive capability across various locations**.
+
+```{r errors_by_station, warning = FALSE, message = FALSE }
+week_predictions %>% 
+    mutate(interval60 = map(data, pull, interval60),
+           start_station_id = map(data, pull, start_station_id), 
+           start_lat = map(data, pull, start_lat), 
+           start_lng = map(data, pull, start_lng),
+           dotw = map(data, pull, dotw)) %>%
+    select(interval60, start_station_id, start_lng, 
+           start_lat, Observed, Prediction, Regression,
+           dotw) %>%
+    unnest() %>%
+  filter(Regression == "DTime_Space_FE_timeLags") %>%
+  group_by(start_station_id, start_lng, start_lat) %>%
+  summarize(MAE = mean(abs(Observed-Prediction), na.rm = TRUE))%>%
+ggplot(.)+
+  geom_sf(data = jcCensus, color = "grey", fill = "transparent")+
+  geom_point(aes(x = start_lng, y = start_lat, color = MAE), 
+             fill = "transparent", alpha = 0.4)+
+  scale_colour_viridis(direction = -1,
+  discrete = FALSE, option = "D")+
+  ylim(min(bike_census$start_lat), max(bike_census$start_lat))+
+  xlim(min(bike_census$start_lng), max(bike_census$start_lng))+
+  labs(title="Mean Abs Error, Test Set, Model 4")+
+  mapTheme
+```
+There is also no significant difference between the MAE in the two weeks (week 9 and week 10).
+
+```{r}
+
+# select best regression model and get value by station (or tract)
+errors <- week_predictions %>%
+    mutate(interval60 = map(data, pull, interval60),
+           start_station_id = map(data, pull, start_station_id), 
+           start_lat = map(data, pull, start_lat), 
+           start_lng = map(data, pull, start_lng),
+           dotw = map(data, pull, dotw),
+           Percent_Taking_Public_Trans = map(data, pull, Percent_Taking_Public_Trans),
+           Med_Inc = map(data, pull, Med_Inc),
+           Percent_White = map(data, pull, Percent_White)) %>%
+    unnest() %>%
+  filter(Regression == "DTime_Space_FE_timeLags")%>%
+  unnest%>%
+  st_as_sf(coords = c("start_lng", "start_lat"), crs = 4326)
+
+
+
+# get total MAE per weeks 42 and 43
+errorWeek <- errors %>%
+  dplyr::select(start_station_id, Absolute_Error, week, geometry) %>%
+  gather(Variable, Value, -start_station_id, -week, -geometry) %>%
+    group_by(Variable, start_station_id, week) %>%
+    summarize(MAE = mean(Value))
+
+
+# map of error by weeks
+errorWeek %>%
+  ggplot() +
+  geom_sf(data=jcTracts, color = "grey", fill = "transparent") +
+  geom_sf(pch = 21,
+          colour = 'NA',
+          alpha = 0.75,
+          aes(size = MAE,
+          fill = MAE)) +
+  facet_wrap(~week, ncol = 2) +
+  scale_colour_viridis(direction = -1,
+  discrete = FALSE, option = "D")+
+  scale_size_continuous(range = c(0,6)) +
+  labs(title="Mean Absolute Error per week and station",
+       subtitle = "Bike Share in Jersey City") +
+  guides(size=F,
+         fill=guide_colorbar(title="MAE", barwidth = 20)) +
+  theme_void() +
+  theme(legend.position = "bottom",
+        panel.border = element_blank(),
+        panel.grid = element_blank(),
+        strip.text.x = element_text(size = 16, color = '#ffffff', hjust=0.01)
+        )
+
+```
+## Space-Time Error Evaluation
+
+This series of plots presents a comparison between observed and predicted bike-share ridership. The analysis is broken down by different times of the day and by weekday versus weekend, allowing us to discern patterns of under or over-prediction. It seems that during the AM Rush and PM Rush on weekdays, and Mid-Day on weekends, the predictions are closer to the observed values, suggesting **a higher model accuracy during peak usage times**.
+
+```{r obs_pred_all, warning=FALSE, message = FALSE, cache=TRUE}
+week_predictions %>% 
+    mutate(interval60 = map(data, pull, interval60),
+           start_station_id = map(data, pull, start_station_id), 
+           start_lat = map(data, pull, start_lat), 
+           start_lng = map(data, pull, start_lng),
+           dotw = map(data, pull, dotw)) %>%
+    select(interval60, start_station_id, start_lng, 
+           start_lat, Observed, Prediction, Regression,
+           dotw) %>%
+    unnest() %>%
+  filter(Regression == "DTime_Space_FE_timeLags")%>%
+  mutate(weekend = ifelse(dotw %in% c("Sun", "Sat"), "Weekend", "Weekday"),
+         time_of_day = case_when(hour(interval60) < 7 | hour(interval60) > 18 ~ "Overnight",
+                                 hour(interval60) >= 7 & hour(interval60) < 10 ~ "AM Rush",
+                                 hour(interval60) >= 10 & hour(interval60) < 15 ~ "Mid-Day",
+                                 hour(interval60) >= 15 & hour(interval60) <= 18 ~ "PM Rush"))%>%
+  ggplot()+
+  geom_point(aes(x= Observed, y = Prediction))+
+    geom_smooth(aes(x= Observed, y= Prediction), method = "lm", se = FALSE, color = "red")+
+    geom_abline(slope = 1, intercept = 0)+
+  facet_grid(time_of_day~weekend)+
+  labs(title="Observed vs Predicted",
+       x="Observed trips", 
+       y="Predicted trips")+
+  plotTheme
+```
+
+The scatter plots examine the relationship between socio-economic factors — median income, percentage using public transport, and percentage of white residents — and the predictive errors. There is a visible trend that as median income and percentage of white residents increase, so does the MAE, suggesting that these socio-economic factors may influence ridership patterns in ways that the model does not fully capture. The percentage of residents using public transportation shows less clear of a trend, indicating the need for further investigation into how public transportation usage correlates with bike-share ridership.
+
+```{r station_summary2, warning=FALSE, message = FALSE }
+week_predictions %>% 
+    mutate(interval60 = map(data, pull, interval60),
+           start_station_id = map(data, pull, start_station_id), 
+           start_lat = map(data, pull, start_lat), 
+           start_lng = map(data, pull, start_lng),
+           dotw = map(data, pull, dotw),
+           Percent_Taking_Public_Trans = map(data, pull, Percent_Taking_Public_Trans),
+           Med_Inc = map(data, pull, Med_Inc),
+           Percent_White = map(data, pull, Percent_White)) %>%
+    select(interval60, start_station_id, start_lng, 
+           start_lat, Observed, Prediction, Regression,
+           dotw, Percent_Taking_Public_Trans, Med_Inc, Percent_White) %>%
+    unnest() %>%
+  filter(Regression == "DTime_Space_FE_timeLags")%>%
+  mutate(weekend = ifelse(dotw %in% c("Sun", "Sat"), "Weekend", "Weekday"),
+         time_of_day = case_when(hour(interval60) < 7 | hour(interval60) > 18 ~ "Overnight",
+                                 hour(interval60) >= 7 & hour(interval60) < 10 ~ "AM Rush",
+                                 hour(interval60) >= 10 & hour(interval60) < 15 ~ "Mid-Day",
+                                 hour(interval60) >= 15 & hour(interval60) <= 18 ~ "PM Rush")) %>%
+  filter(time_of_day == "AM Rush") %>%
+  group_by(start_station_id, Percent_Taking_Public_Trans, Med_Inc, Percent_White) %>%
+  summarize(MAE = mean(abs(Observed-Prediction), na.rm = TRUE))%>%
+  gather(-start_station_id, -MAE, key = "variable", value = "value")%>%
+  ggplot(.)+
+  #geom_sf(data = chicagoCensus, color = "grey", fill = "transparent")+
+  geom_point(aes(x = value, y = MAE), alpha = 0.4)+
+  geom_smooth(aes(x = value, y = MAE), method = "lm", se= FALSE)+
+  facet_wrap(~variable, scales = "free")+
+  labs(title="Errors as a function of socio-economic variables",
+       y="Mean Absolute Error (Trips)")+
+  plotTheme
+  
+```
+
+
+## Cross-validation
+
+Finally, a 100-fold cross validations are made on the whole March data, and get a final MAE of 0.177, which includes that even tho this model cant perfectly predict the result, but the error is not that significant. However, this small MAE is also due to the small ridership at each station.
+
+
+```{r crossvalidation}
+fitControl <- trainControl(method = "cv", number = 100)
+
+reg.cv <- train(Trip_Count ~ start_station_name +  hour(interval60) + dotw + Temperature + Wind_Speed + lagHour + lag2Hours + lag12Hours + lag1day, data=bike.panel, method = "lm", trControl = fitControl, na.action = na.pass)
+
+reg.cv$resample %>% 
+  summarise(MAE = mean(reg.cv$resample[,3]),
+            sd(reg.cv$resample[,3])
+) %>%
+  kbl(col.name=c('Mean Absolute Error','Standard Deviation of MAE')) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+```
+
+
+# Conclusion
+
+
