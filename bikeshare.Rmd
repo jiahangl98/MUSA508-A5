@@ -1,5 +1,4 @@
-<<<<<<< Updated upstream
----
+
 title: "Bikeshare perdict"
 author: "Jiahang Li"
 date: "2024-04-27"
@@ -333,7 +332,9 @@ ggplot(bike_census)+
 
 ```
 
-Building onto that, we group this dataset by station and time of day to visualize the total number of trips at each station during a specific period of time on weekday or weekend. To simplify our visualization, we selected the top 50 occurrences in our dataset. Note that here, each bar represent an instance of station-time of day-weekday/weekend combination. We are able to see that PM rush hour indeed sees that greatest bikeshare demand for a couple of stations in particular. Weekend rides only appear three times in the top 50 list. Zooming into the detail reveals to us that **Grove St PATH** station observes a total of 1117 rides during PM rush on a weekday, 801 rides overnight on a weekday in August 2023. **Hoboken Terminal - River St & Hudson Pl** station observes a total of 864 rides during PM rush on weekday. **South Waterfront Walkway - Sinatra Dr & 1 St** station observes 319 rides overnight on a weekend and 731 rides during PM rush on a weekday in August 2023. 
+We analyzed our bikeshare dataset by aggregating the number of trips according to the station, time of day, and whether the day was part of a weekday or weekend. Our objective was to discern the bike demand across different periods and conditions. For clarity in our visualization, we concentrated on the most significant data points, selecting the top 50 instances where bikeshare use was highest. The resulting visualization paints a clear picture: PM rush hours witness a substantial spike in bikeshare activity, particularly at specific stations. A noteworthy observation is that weekend rides are less frequent among the top occurrences, only appearing three times within the top 50.
+
+A closer look at the data uncovers some standout numbers. For instance, the Grove St PATH station registers a remarkable total of 740 rides during the PM rush on weekdays and another significant count of 402 rides overnight during weekdays of March 2024. Similarly, the Hoboken Terminal - River St & Hudson Pl is a hub of activity with a total of 613 rides noted during the overnight hours on weekdays.
 
 ```{r bikeshare viz 7, fig.width=10}
 to_plot <- bike_census%>% # only show 100 stations
