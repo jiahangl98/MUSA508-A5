@@ -336,34 +336,34 @@ ggplot(bike_census)+
 Building onto that, we group this dataset by station and time of day to visualize the total number of trips at each station during a specific period of time on weekday or weekend. To simplify our visualization, we selected the top 50 occurrences in our dataset. Note that here, each bar represent an instance of station-time of day-weekday/weekend combination. We are able to see that PM rush hour indeed sees that greatest bikeshare demand for a couple of stations in particular. Weekend rides only appear three times in the top 50 list. Zooming into the detail reveals to us that **Grove St PATH** station observes a total of 1117 rides during PM rush on a weekday, 801 rides overnight on a weekday in August 2023. **Hoboken Terminal - River St & Hudson Pl** station observes a total of 864 rides during PM rush on weekday. **South Waterfront Walkway - Sinatra Dr & 1 St** station observes 319 rides overnight on a weekend and 731 rides during PM rush on a weekday in August 2023. 
 
 ```{r bikeshare viz 7, fig.width=10}
-
 to_plot <- bike_census%>% # only show 100 stations
-  group_by(start_station_id, start_lat, start_lng, weekend, time_of_day, start_station_name) %>%
+  group_by(start_station_id, start_lat, start_lng, time_of_day, start_station_name,weekend) %>%
   tally() %>% 
   arrange(-n) %>% 
   head(50) 
 to_plot$ID <- seq_along(to_plot$start_station_id)
+to_plot <- to_plot %>%
+  mutate(combined = paste(start_station_id, as.character(weekend), time_of_day, sep = "_"))
+
 
 to_plot %>% 
   arrange(-n) %>%
   head(50) %>% 
-  ggplot(aes(x = start_station_name, -n), n, fill = time_of_day, color = weekend)) +
+  ggplot(aes(x = reorder(combined, -n), n, fill = time_of_day,color = weekend)) +
   scale_fill_manual(values = palette4, name="Time of Day") + 
   guides(color="none") + 
   geom_bar(stat = "identity", position="stack") +
   scale_color_manual(values = c("transparent", "black")) +
   labs(title="Top 50 Occurences of Rides By Time")+
   ylab("Number of Rides") +
-  xlab("") + 
-  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-theme(plot.subtitle = element_text(size = 9, face = "italic"),
-      plot.title = element_text(size = 12, face = "bold"), 
-      axis.text.x = element_text(angle = 45, hjust = 1, size = 8), # ensure station names are displayed
-      axis.ticks.x = element_line(size = 0.5),  # assuming you want to keep the x-axis ticks
-      axis.text.y = element_text(size = 8), 
-      axis.title = element_text(size = 10), 
-      panel.background = element_blank(),
-      panel.border = element_rect(colour = "grey", fill = NA, size = 0.8))
+  xlab("Station ID") + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 4.5)) + 
+  theme(plot.subtitle = element_text(size = 9,face = "italic"),
+        plot.title = element_text(size = 12, face = "bold"), 
+        axis.text.y=element_text(size=8), 
+        axis.title=element_text(size=10), 
+        panel.background = element_blank(),
+        panel.border = element_rect(colour = "grey", fill=NA, size=0.8))
 ```
 
 ## Spatial Analysis
