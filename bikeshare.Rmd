@@ -1,4 +1,4 @@
-
+---
 title: "Bikeshare perdict"
 author: "Jiahang Li"
 date: "2024-04-27"
@@ -12,7 +12,6 @@ output:
     highlight: tango    
 editor_options: 
   markdown: 
-    wrap: 72
 ---
 
 ```{r setup, include=FALSE}
@@ -517,7 +516,7 @@ bikeshare_animation <-
   
 
 
-anim_save("animation.gif", animation = bikeshare_animation, end_pause = 4, height = 1000, width = 700, fps = 6, renderer = gifski_renderer())
+#anim_save("animation.gif", animation = bikeshare_animation, end_pause = 4, height = 1000, width = 700, fps = 6, renderer = gifski_renderer())
 
 
 
@@ -728,45 +727,48 @@ as.data.frame(bike.panel) %>%
 
 ```
 
-## Spatial Correlation
+# Spatial Correlation
 
 We've seen before that spatial autocorrelation exists here in that the number of trips at a particular station during a particular time is correlated with the number of trips at nearby stations. This means that if we know the number of trips at a station, we may be able to estimate the number of trips at the station next to it. Do achieve that, we created a new dataframe called `lag_result` and wrote a nested loop to loop through each hour in August 2023. For each hour, we then calculate the nearest 5 neighbor of each station and the average of rides for that 5 stations. The results were joined back to our panel dataset. 
 
-```{r}
-# First, duplicate the columns
-bike.panel$start_lng_original <- bike.panel$start_lng
-bike.panel$start_lat_original <- bike.panel$start_lat
-
-```
 
 ```{r}
-bike.panel <- st_as_sf(bike.panel, coords = c("start_lng", "start_lat"), crs = 4326)
+bike.panel.sf <- st_as_sf(bike.panel, coords = c("start_lng", "start_lat"), crs = 4326)
 
-jcTracts <- st_transform(jcTracts, st_crs(bike.panel))
+jcTracts <- st_transform(jcTracts, st_crs(bike.panel.sf))
 
-bike.panel <- jcTracts %>%
-  st_join(bike.panel)
+bike.panel.sf <- jcTracts %>%
+  st_join(bike.panel.sf)
 
-bike.panel <- filter(bike.panel, !is.na(dotw))
-
-
-bikenew <- bike.panel %>%
-  select(geometry,Trip_Count) 
-  
-# 假设df是包含经纬度和trip数的数据框
-coordinates <- SpatialPointsDataFrame(coords = bike.panel[, c("start_lng", "start_lat")], data = bike.panel, proj4string = CRS("+proj=longlat +datum=WGS84"))
-
-# 计算距离矩阵并定义邻居
-dist_matrix <- spDists(coordinates, longlat = TRUE)
-threshold = 1  # 1公里的阈值
-neighbors <- dnearneigh(coordinates@coords, 0, threshold, longlat = TRUE)
-
-# 创建空间权重
-listw <- nb2listw(neighbors, style = "W")
-
-# 计算spatial lag
-bike.panel$trip_lag <- lag.listw(listw, bike.panel$Trip_Count, zero.policy = TRUE)
+bike.panel.sf <- filter(bike.panel.sf, !is.na(dotw))
 ```
+
+
+```{r}
+library(classInt)
+
+trip_summary <- bike.panel.sf %>%
+  group_by(week, Origin.Tract) %>%
+  summarize(Sum_Trip_Count = sum(Trip_Count)) %>%
+  ungroup()
+
+breaks_jenks <- classIntervals(trip_summary$Sum_Trip_Count, n = 5, style = "jenks")
+
+labels <- paste0(formatC(breaks_jenks$brks[-length(breaks_jenks$brks)], format = "f", digits = 0, big.mark = ","), 
+                 " - ", 
+                 formatC(breaks_jenks$brks[-1], format = "f", digits = 0, big.mark = ","))
+
+
+ggplot() +
+  geom_sf(data = trip_summary, aes(fill = cut(Sum_Trip_Count, breaks = breaks_jenks$brks, include.lowest = TRUE)), color = "lightgrey") +
+    facet_wrap(~week, ncol = 8) +
+    scale_fill_manual(values = palette5,
+                      labels = labels,
+                      name = "Trip Count") +
+    labs(title="Sum of rideshare trips by tract and week") +
+    theme_void()+ theme(legend.position = "bottom") 
+```
+
 
 
 # Regression Models
@@ -865,7 +867,7 @@ week_predictions %>%
     ggplot(aes(interval60, Value, colour=Variable)) + 
       geom_line(size = 1.1) + 
       facet_wrap(~Regression, ncol=1) +
-      labs(title = "Predicted/Observed bike share time series", subtitle = "Chicago; A test set of 2 weeks",  x = "Hour", y= "Station Trips") +
+      labs(title = "Predicted/Observed bike share time series", subtitle = "Jersey City; A test set of March",  x = "Hour", y= "Station Trips") +
       plotTheme
 ```
 
@@ -877,19 +879,19 @@ From the following map, we can tell there's no significant cluster of the high e
 week_predictions %>% 
     mutate(interval60 = map(data, pull, interval60),
            start_station_id = map(data, pull, start_station_id), 
-           start_lat_original = map(data, pull, start_lat_original), 
-           start_lng_original = map(data, pull, start_lng_original),
+           start_lat = map(data, pull, start_lat), 
+           start_lng = map(data, pull, start_lng),
            dotw = map(data, pull, dotw)) %>%
-    select(interval60, start_station_id, start_lng_original, 
-           start_lat_original, Observed, Prediction, Regression,
+    select(interval60, start_station_id, start_lng, 
+           start_lat, Observed, Prediction, Regression,
            dotw) %>%
     unnest() %>%
   filter(Regression == "DTime_Space_FE_timeLags") %>%
-  group_by(start_station_id, start_lng_original, start_lat_original) %>%
+  group_by(start_station_id, start_lng, start_lat) %>%
   summarize(MAE = mean(abs(Observed-Prediction), na.rm = TRUE))%>%
 ggplot(.)+
   geom_sf(data = jcCensus, color = "grey", fill = "transparent")+
-  geom_point(aes(x = start_lng_original, y = start_lat_original, color = MAE), 
+  geom_point(aes(x = start_lng, y = start_lat, color = MAE), 
              fill = "transparent", alpha = 0.4)+
   scale_colour_viridis(direction = -1,
   discrete = FALSE, option = "D")+
@@ -898,7 +900,60 @@ ggplot(.)+
   labs(title="Mean Abs Error, Test Set, Model 4")+
   mapTheme
 ```
+There is also no significant difference between the MAE in the two weeks (week 9 and week 10).
 
+```{r}
+
+# select best regression model and get value by station (or tract)
+errors <- week_predictions %>%
+    mutate(interval60 = map(data, pull, interval60),
+           start_station_id = map(data, pull, start_station_id), 
+           start_lat = map(data, pull, start_lat), 
+           start_lng = map(data, pull, start_lng),
+           dotw = map(data, pull, dotw),
+           Percent_Taking_Public_Trans = map(data, pull, Percent_Taking_Public_Trans),
+           Med_Inc = map(data, pull, Med_Inc),
+           Percent_White = map(data, pull, Percent_White)) %>%
+    unnest() %>%
+  filter(Regression == "DTime_Space_FE_timeLags")%>%
+  unnest%>%
+  st_as_sf(coords = c("start_lng", "start_lat"), crs = 4326)
+
+
+
+# get total MAE per weeks 42 and 43
+errorWeek <- errors %>%
+  dplyr::select(start_station_id, Absolute_Error, week, geometry) %>%
+  gather(Variable, Value, -start_station_id, -week, -geometry) %>%
+    group_by(Variable, start_station_id, week) %>%
+    summarize(MAE = mean(Value))
+
+
+# map of error by weeks
+errorWeek %>%
+  ggplot() +
+  geom_sf(data=jcTracts, color = "grey", fill = "transparent") +
+  geom_sf(pch = 21,
+          colour = 'NA',
+          alpha = 0.75,
+          aes(size = MAE,
+          fill = MAE)) +
+  facet_wrap(~week, ncol = 2) +
+  scale_colour_viridis(direction = -1,
+  discrete = FALSE, option = "D")+
+  scale_size_continuous(range = c(0,6)) +
+  labs(title="Mean Absolute Error per week and station",
+       subtitle = "Bike Share in Jersey City") +
+  guides(size=F,
+         fill=guide_colorbar(title="MAE", barwidth = 20)) +
+  theme_void() +
+  theme(legend.position = "bottom",
+        panel.border = element_blank(),
+        panel.grid = element_blank(),
+        strip.text.x = element_text(size = 16, color = '#ffffff', hjust=0.01)
+        )
+
+```
 ## Space-Time Error Evaluation
 
 This series of plots presents a comparison between observed and predicted bike-share ridership. The analysis is broken down by different times of the day and by weekday versus weekend, allowing us to discern patterns of under or over-prediction. It seems that during the AM Rush and PM Rush on weekdays, and Mid-Day on weekends, the predictions are closer to the observed values, suggesting **a higher model accuracy during peak usage times**.
@@ -907,11 +962,11 @@ This series of plots presents a comparison between observed and predicted bike-s
 week_predictions %>% 
     mutate(interval60 = map(data, pull, interval60),
            start_station_id = map(data, pull, start_station_id), 
-           start_lat_original = map(data, pull, start_lat_original), 
-           start_lng_original = map(data, pull, start_lng_original),
+           start_lat = map(data, pull, start_lat), 
+           start_lng = map(data, pull, start_lng),
            dotw = map(data, pull, dotw)) %>%
-    select(interval60, start_station_id, start_lng_original, 
-           start_lat_original, Observed, Prediction, Regression,
+    select(interval60, start_station_id, start_lng, 
+           start_lat, Observed, Prediction, Regression,
            dotw) %>%
     unnest() %>%
   filter(Regression == "DTime_Space_FE_timeLags")%>%
@@ -931,53 +986,20 @@ week_predictions %>%
   plotTheme
 ```
 
-
-```{r station_summary, warning=FALSE, message = FALSE }
-week_predictions %>% 
-    mutate(interval60 = map(data, pull, interval60),
-           start_station_id = map(data, pull, start_station_id), 
-           start_lat_original = map(data, pull, start_lat_original), 
-           start_lng_original = map(data, pull, start_lng_original),
-           dotw = map(data, pull, dotw)) %>%
-    select(interval60, start_station_id, start_lng_original, 
-           start_lat_original, Observed, Prediction, Regression,
-           dotw) %>%
-    unnest() %>%
-  filter(Regression == "DTime_Space_FE_timeLags")%>%
-  mutate(weekend = ifelse(dotw %in% c("Sun", "Sat"), "Weekend", "Weekday"),
-         time_of_day = case_when(hour(interval60) < 7 | hour(interval60) > 18 ~ "Overnight",
-                                 hour(interval60) >= 7 & hour(interval60) < 10 ~ "AM Rush",
-                                 hour(interval60) >= 10 & hour(interval60) < 15 ~ "Mid-Day",
-                                 hour(interval60) >= 15 & hour(interval60) <= 18 ~ "PM Rush")) %>%
-  group_by(start_station_id, start_lng_original, start_lat_original) %>%
-  summarize(MAE = mean(abs(Observed-Prediction), na.rm = TRUE))%>%
-  ggplot()+
-  geom_sf(data = jcCensus, color = "grey", fill = "transparent")+
-  geom_point(aes(x = start_lng_original, y = start_lat_original, color = MAE), 
-             fill = "transparent", size = 0.5, alpha = 0.4)+
-  scale_colour_viridis(direction = -1,
-  discrete = FALSE, option = "D")+
-  ylim(min(bike_census$start_lat), max(bike_census$start_lat))+
-  xlim(min(bike_census$start_lng), max(bike_census$start_lng ))+
-  facet_grid(weekend~time_of_day)+
-  labs(title="Mean Absolute Errors, Test Set")+
-  mapTheme
-  
-```
 The scatter plots examine the relationship between socio-economic factors — median income, percentage using public transport, and percentage of white residents — and the predictive errors. There is a visible trend that as median income and percentage of white residents increase, so does the MAE, suggesting that these socio-economic factors may influence ridership patterns in ways that the model does not fully capture. The percentage of residents using public transportation shows less clear of a trend, indicating the need for further investigation into how public transportation usage correlates with bike-share ridership.
 
 ```{r station_summary2, warning=FALSE, message = FALSE }
 week_predictions %>% 
     mutate(interval60 = map(data, pull, interval60),
            start_station_id = map(data, pull, start_station_id), 
-           start_lat_original = map(data, pull, start_lat_original), 
-           start_lng_original = map(data, pull, start_lng_original),
+           start_lat = map(data, pull, start_lat), 
+           start_lng = map(data, pull, start_lng),
            dotw = map(data, pull, dotw),
            Percent_Taking_Public_Trans = map(data, pull, Percent_Taking_Public_Trans),
            Med_Inc = map(data, pull, Med_Inc),
            Percent_White = map(data, pull, Percent_White)) %>%
-    select(interval60, start_station_id, start_lng_original, 
-           start_lat_original, Observed, Prediction, Regression,
+    select(interval60, start_station_id, start_lng, 
+           start_lat, Observed, Prediction, Regression,
            dotw, Percent_Taking_Public_Trans, Med_Inc, Percent_White) %>%
     unnest() %>%
   filter(Regression == "DTime_Space_FE_timeLags")%>%
@@ -1001,5 +1023,27 @@ week_predictions %>%
   
 ```
 
+
+## Cross-validation
+
+Finally, a 100-fold cross validations are made on the whole March data, and get a final MAE of 0.177, which includes that even tho this model cant perfectly predict the result, but the error is not that significant. However, this small MAE is also due to the small ridership at each station.
+
+
+```{r crossvalidation}
+fitControl <- trainControl(method = "cv", number = 100)
+
+reg.cv <- train(Trip_Count ~ start_station_name +  hour(interval60) + dotw + Temperature + Wind_Speed + lagHour + lag2Hours + lag12Hours + lag1day, data=bike.panel, method = "lm", trControl = fitControl, na.action = na.pass)
+
+reg.cv$resample %>% 
+  summarise(MAE = mean(reg.cv$resample[,3]),
+            sd(reg.cv$resample[,3])
+) %>%
+  kbl(col.name=c('Mean Absolute Error','Standard Deviation of MAE')) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+```
+
+
+# Conclusion
 
 
