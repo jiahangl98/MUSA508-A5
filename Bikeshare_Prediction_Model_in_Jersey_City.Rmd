@@ -368,7 +368,7 @@ to_plot %>%
 
 ## Spatial Analysis
 
-From this visual representation, we can deduce which stations are most frequented during different times of the day. During the weekday AM and PM Rush hours, certain stations have significantly higher usage, likely located in or near business districts or major transit hubs. Mid-Day and Overnight show reduced activity, as indicated by smaller or fewer circles. The weekend maps indicate a more even distribution of rides across the day, with no single time period showing dominant demand as seen during the weekday rush hours.
+From this visual representation, we can deduce which stations are most frequent during different times of the day. During the weekday AM and PM Rush hours, certain stations have significantly higher usage, likely located in or near business districts or major transit hubs. Mid-Day and Overnight show reduced activity, as indicated by smaller or fewer circles. The weekend maps indicate a more even distribution of rides across the day, with no single time period showing dominant demand as seen during the weekday rush hours.
 
 ```{r bikeshare viz 6}
 
@@ -465,12 +465,13 @@ The map illustrates a distinct pattern of clustering among bike share stations w
         )
 
 ```
-## Space-time Correlation
 
+
+## Space-time Correlation
 
 The animated map presents a dynamic choropleth representation, merging both spatial and temporal aspects of bikeshare usage into a cohesive visualization. It updates every 15 minutes to reflect changes in bike ride patterns across the area of interest.
 
-```{r animate map temporal viz, message=FALSE, warning=FALSE, cache=TRUE, fig.show='animate'}
+```{r animate map temporal viz, message=FALSE, warning=FALSE, cache=TRUE}
 library(gifski)
 week13 <-
   filter(bike_census , week == 13 & dotw == "Mon")
@@ -514,17 +515,14 @@ bikeshare_animation <-
         panel.border = element_rect(colour = "grey", fill=NA, linewidth=0.8)
         )
   
+#animate(bikeshare_animation, duration=20, end_pause = 4, height = 1000, width = 700, fps = 6,renderer = gifski_renderer())
 
-
-anim_save("animation.gif", animation = bikeshare_animation, end_pause = 4, height = 1000, width = 700, fps = 6, renderer = gifski_renderer())
-
-
-
-
+#anim_save("animation.gif", animation = bikeshare_animation, end_pause = 4, height = 1000, width = 700, fps = 6, renderer = gifski_renderer())
 ```
-
-
-
+<center>
+![Bikeshare Animation](https://raw.githubusercontent.com/jiahangl98/MUSA508-A5/main/animation.gif)
+<figcaption>The Bikeshare Animation for Jersey City</figcaption>
+</center>
 
 ## Weather Analysis
 
@@ -871,6 +869,7 @@ week_predictions %>%
       plotTheme
 ```
 
+
 Then, we will continue examine spatial distribution of the MAE with model 4.
 
 From the following map, we can tell there's no significant cluster of the high error, while the model4 generally perform well in the southwestern part of Jersey Cit with low error, generally indicating **a uniform predictive capability across various locations**.
@@ -900,6 +899,8 @@ ggplot(.)+
   labs(title="Mean Abs Error, Test Set, Model 4")+
   mapTheme
 ```
+
+
 There is also no significant difference between the MAE in the two weeks (week 9 and week 10).
 
 ```{r}
@@ -954,6 +955,8 @@ errorWeek %>%
         )
 
 ```
+
+
 ## Space-Time Error Evaluation
 
 This series of plots presents a comparison between observed and predicted bike-share ridership. The analysis is broken down by different times of the day and by weekday versus weekend, allowing us to discern patterns of under or over-prediction. It seems that during the AM Rush and PM Rush on weekdays, and Mid-Day on weekends, the predictions are closer to the observed values, suggesting **a higher model accuracy during peak usage times**.
@@ -1045,5 +1048,12 @@ reg.cv$resample %>%
 
 
 # Conclusion
+This project has utilized the application of machine learning techniques and regression analysis to predict the demand for bike-sharing services in Jersey City, focusing on a time-space model with lagged features. Our findings explained the role of predictive modeling in optimizing bicycle distribution across the city to increase operational efficiency and user satisfaction.
+
+We observed that predictive accuracy varied according to different times of the day and days of the week. Our model also showed higher accuracy during peak rush hours and lower accuracy during off-peak times and weekends. This variation pointed to the necessity of incorporating diverse time-dependent variables into the model to better predict demand fluctuations.
+
+Adding spatial and temporal lags into the model significantly improved the machine learning models’ predictive power. The complex model will also ensurethat high-demand stations are adequately stocked to meet user needs while low-demand stations are maintained to prevent overflow.
+
+However, there are some limitations in the model sections, such as the impact of unconsidered variables like holiday schedules and some extent of weather conditions. The model's performance during certain periods, such as the university spring break, could affect the accuracy of the prediction model. The improvement can include a broader range of factors, including academic calendars and detailed weather impact studies.
 
 
